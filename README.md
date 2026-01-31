@@ -1,29 +1,51 @@
 # Digital Incident & Near-Miss Reporting System
 
-## 📌 Project Description
+## 1. Introduction
 
-A centralized digital system for reporting, tracking, and managing security incidents and near-miss events, enabling efficient response, risk analysis, and preventive action through structured workflows.
+The Digital Incident & Near-Miss Reporting System is a centralized platform designed to record, track, and manage digital security incidents and near-miss events. The system helps organizations improve security awareness, analyze risks, and take preventive actions through structured and transparent reporting.
 
-## 🎯 Objectives
+## 2. Problem Statement
 
-- Allow users to report incidents and near-misses digitally
-- Maintain incident history and status tracking
-- Support role-based access control
-- Improve organizational risk awareness and prevention
+Manual or unstructured incident reporting often leads to delayed responses, missing data, and lack of accountability. Near-miss events are frequently ignored, increasing the risk of future incidents.
 
-## 🛠️ Tech Stack
+## 3. Objectives
 
-- Frontend:
-- Backend:
-- Database:
+- To provide a digital platform for incident and near-miss reporting  
+- To maintain a structured incident database  
+- To track incident status and resolution  
+- To support role-based access control  
+- To improve risk prevention and decision-making  
 
-## 👥 Team Members
+## 4. Scope of the Project
 
-- Team Lead:
-- Member 1:
-- Member 2:
-- Member 3:
+The system allows authorized users to report incidents, monitor progress, and analyze incident data. It is suitable for academic and organizational use.
 
-## 📅 Project Status
+## 5. System Users
 
-Under Development 🚧
+- Administrator  
+- Registered User  
+- Security Officer (optional)
+
+## 6. Technology Stack
+
+- Frontend:  
+- Backend:  
+- Database:  
+
+## 7. Team Members
+
+- Team Lead:  
+- Member 1:  
+- Member 2:  
+- Member 3:  
+
+## 8. Project Status
+
+🚧 Under Development
+
+## 9. Future Enhancements
+
+- Incident analytics dashboard  
+- Automated alerts and notifications  
+- Report export (PDF/Excel)  
+- Mobile application support  
