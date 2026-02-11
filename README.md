@@ -1,70 +1,224 @@
-<<<<<<< HEAD
-# Digital Incident & Near-Miss Reporting System
 
-## 1. Introduction
+---
 
-The Digital Incident & Near-Miss Reporting System is a centralized platform designed to record, track, and manage digital security incidents and near-miss events. The system helps organizations improve security awareness, analyze risks, and take preventive actions through structured and transparent reporting.
+# 🚨 Digital Incident & Near-Miss Reporting System
 
-## 2. Problem Statement
+A centralized digital platform designed to report, track, manage, and analyze workplace incidents and near-miss events efficiently and transparently.
 
-Manual or unstructured incident reporting often leads to delayed responses, missing data, and lack of accountability. Near-miss events are frequently ignored, increasing the risk of future incidents.
+---
 
-## 3. Objectives
+## 📌 1. Introduction
 
-- To provide a digital platform for incident and near-miss reporting  
-- To maintain a structured incident database  
-- To track incident status and resolution  
-- To support role-based access control  
-- To improve risk prevention and decision-making  
+The **Digital Incident & Near-Miss Reporting System** is a secure and structured reporting platform that enables organizations to digitally record incidents and near-miss events.
 
-## 4. Scope of the Project
+The system ensures:
 
-The system allows authorized users to report incidents, monitor progress, and analyze incident data. It is suitable for academic and organizational use.
+* Proper documentation
+* Status tracking
+* Accountability
+* Risk analysis
+* Preventive action planning
 
-## 5. System Users
+It replaces manual reporting methods with a streamlined digital workflow.
 
-- Administrator  
-- Registered User  
-- Security Officer (optional)
+---
 
-## 6. Technology Stack
+## ❗ 2. Problem Statement
 
-- Frontend:  
-- Backend:  
-- Database:  
+In many organizations, incident reporting is:
 
-## 7. Team Members
+* Manual and paper-based
+* Poorly documented
+* Delayed in response
+* Lacking accountability
+* Missing structured follow-up
 
-- Team Lead:  
-- Member 1:  
-- Member 2:  
-- Member 3:  
+Near-miss events are often ignored, which increases the probability of serious future incidents.
 
-## 8. Project Status
+There is a need for a centralized, transparent, and role-based digital solution.
 
-🚧 Under Development
+---
 
-## 9. Future Enhancements
+## 🎯 3. Objectives
 
-- Incident analytics dashboard  
-- Automated alerts and notifications  
-- Report export (PDF/Excel)  
-- Mobile application support  
-=======
-# project
+* Provide a secure digital platform for reporting incidents and near-miss events
+* Maintain a structured and searchable incident database
+* Track incident lifecycle from reporting to closure
+* Implement role-based access control (RBAC)
+* Enable risk analysis and preventive decision-making
+* Improve organizational safety culture
 
-A new Flutter project.
+---
 
-## Getting Started
+## 🌍 4. Scope of the Project
 
-This project is a starting point for a Flutter application.
+The system is designed for:
 
-A few resources to get you started if this is your first Flutter project:
+* Academic institutions
+* Organizations
+* Corporate workplaces
+* Security monitoring environments
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+### Core Functional Flow:
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
->>>>>>> origin/main
+**Report → Review → Action → Close → Analyze**
+
+The system allows authorized users to:
+
+* Submit incident reports
+* Attach evidence (images/documents)
+* Track report status
+* Assign actions
+* Generate reports
+* View analytics
+
+---
+
+## 👥 5. System Users
+
+### 🔹 Administrator
+
+* Manage users
+* Assign roles
+* Monitor system activity
+* View all incidents
+* Generate reports
+
+### 🔹 Registered User
+
+* Report incidents
+* Report near-miss events
+* Track submitted reports
+* View status updates
+
+### 🔹 Security Officer (Optional Role)
+
+* Review submitted incidents
+* Investigate reports
+* Update status
+* Recommend corrective actions
+
+---
+
+## 🏗 6. System Architecture
+
+The system follows a modern client-server architecture.
+
+```
+Frontend (Flutter)
+        ↓
+Backend (Firebase)
+        ↓
+Cloud Database (Firestore)
+```
+
+---
+
+## 💻 7. Technology Stack
+
+### 🔹 Frontend
+
+* Flutter (Cross-platform UI framework)
+* Dart Programming Language
+
+### 🔹 Backend
+
+* Firebase Authentication
+* Firebase Cloud Functions (if required)
+* Firebase Cloud Messaging (for notifications)
+
+### 🔹 Database
+
+* Cloud Firestore (NoSQL Database)
+
+### 🔹 Additional Services
+
+* Firebase Storage (for file uploads)
+* PDF Generation Module (for report export)
+
+---
+
+## 🔐 Key Features & Development Status
+
+- 🚧 Incident Reporting Module (UI Developed, Backend Integration Pending)
+- 🚧 Near-Miss Reporting Module (In Progress)
+- 🚧 Role-Based Access Control (Design Phase)
+- 🚧 Secure Authentication (Firebase Setup Ongoing)
+- 🚧 Supervisor Dashboard (Under Development)
+- 🚧 Incident Status Tracking (Logic Not Fully Implemented)
+- 🚧 Notification System (Planned)
+- 🚧 Analytics Dashboard (In Progress)
+
+---
+
+## 📊 9. Core Modules
+
+### 1️⃣ Incident Reporting Module
+
+Allows users to submit detailed reports including:
+
+* Incident type
+* Description
+* Date & Time
+* Location
+* Evidence attachments
+
+### 2️⃣ Review & Investigation Module
+
+* Assign investigator
+* Add remarks
+* Update status
+
+### 3️⃣ Action & Resolution Module
+
+* Record corrective action
+* Mark incident as resolved
+* Close case
+
+### 4️⃣ Analytics Module (Planned)
+
+* Incident trends
+* Risk patterns
+* Department-wise reports
+* Graphical insights
+
+---
+
+## 📈 10. Project Status
+
+🚧 **Under Development**
+
+Current Phase:
+
+* UI Development Completed
+* Firebase Integration Ongoing
+* Dashboard Module in Progress
+
+---
+
+## 🚀 11. Future Enhancements
+
+* 📊 Advanced Analytics Dashboard
+* 🔔 Automated Email & Push Notifications
+* 📄 Report Export (PDF / Excel)
+* 📱 Dedicated Mobile Application Deployment
+* 🤖 AI-Based Risk Prediction
+* 📍 Geo-location tagging for incidents
+* 🧾 Audit Log System
+
+---
+
+## 👨‍💻 12. Team Members
+
+* **Abhishek Kumar**
+* **Ajayram Meena**
+* **Aniket Kumar Singh**
+
+---
+
+## 📚 13. License
+
+This project is developed for academic and learning purposes.
+
+---
+
