@@ -138,16 +138,16 @@ Cloud Database (Firestore)
 
 ---
 
-## 🔐 8. Key Features
+## 🔐 Key Features & Development Status
 
-* ✅ Incident Reporting Module
-* ✅ Near-Miss Reporting Module
-* ✅ Role-Based Access Control
-* ✅ Supervisor Dashboard
-* ✅ Incident Status Tracking
-* ✅ Notification System
-* ✅ Secure Authentication
-* 🚧 Analytics Dashboard (In Progress)
+- 🚧 Incident Reporting Module (UI Developed, Backend Integration Pending)
+- 🚧 Near-Miss Reporting Module (In Progress)
+- 🚧 Role-Based Access Control (Design Phase)
+- 🚧 Secure Authentication (Firebase Setup Ongoing)
+- 🚧 Supervisor Dashboard (Under Development)
+- 🚧 Incident Status Tracking (Logic Not Fully Implemented)
+- 🚧 Notification System (Planned)
+- 🚧 Analytics Dashboard (In Progress)
 
 ---
 
