@@ -121,51 +121,84 @@ class _LoginPageState extends State<LoginPage>
   Widget _buildLoginTab() {
     return Padding(
       padding: const EdgeInsets.all(16.0),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _loginEmail,
-            decoration: const InputDecoration(labelText: 'Email'),
-            keyboardType: TextInputType.emailAddress,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _loginPassword,
-            decoration: const InputDecoration(labelText: 'Password'),
-            obscureText: true,
-          ),
-          const SizedBox(height: 12),
-          ValueListenableBuilder<String>(
-            valueListenable: _loginRole,
-            builder: (context, value, _) {
-              return DropdownButtonFormField<String>(
-                initialValue: value,
-                decoration: const InputDecoration(labelText: 'Role'),
-                items: const [
-                  DropdownMenuItem(value: 'reporter', child: Text('Reporter')),
-                  DropdownMenuItem(
-                    value: 'supervisor',
-                    child: Text('Supervisor'),
-                  ),
-                ],
-                onChanged: (v) {
-                  if (v != null) _loginRole.value = v;
-                },
-              );
-            },
-          ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _loading ? null : _signIn,
-              child: _loading
-                  ? const CircularProgressIndicator()
-                  : const Text('Login'),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            TextField(
+              controller: _loginEmail,
+              decoration: InputDecoration(
+                labelText: 'Email',
+                prefixIcon: const Icon(Icons.email),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              keyboardType: TextInputType.emailAddress,
             ),
-          ),
-        ],
+            const SizedBox(height: 16),
+            TextField(
+              controller: _loginPassword,
+              decoration: InputDecoration(
+                labelText: 'Password',
+                prefixIcon: const Icon(Icons.lock),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              obscureText: true,
+            ),
+            const SizedBox(height: 16),
+            ValueListenableBuilder<String>(
+              valueListenable: _loginRole,
+              builder: (context, value, _) {
+                return DropdownButtonFormField<String>(
+                  initialValue: value,
+                  decoration: InputDecoration(
+                    labelText: 'Role',
+                    prefixIcon: const Icon(Icons.person),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'reporter', child: Text('Reporter')),
+                    DropdownMenuItem(
+                      value: 'supervisor',
+                      child: Text('Supervisor'),
+                    ),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) _loginRole.value = v;
+                  },
+                );
+              },
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _loading ? null : _signIn,
+                icon: _loading ? const SizedBox.shrink() : const Icon(Icons.login),
+                label: _loading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Login'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -173,61 +206,106 @@ class _LoginPageState extends State<LoginPage>
   Widget _buildSignUpTab() {
     return Padding(
       padding: const EdgeInsets.all(16.0),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _signFirstName,
-            decoration: const InputDecoration(labelText: 'First name'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _signLastName,
-            decoration: const InputDecoration(labelText: 'Last name'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _signEmail,
-            decoration: const InputDecoration(labelText: 'Email'),
-            keyboardType: TextInputType.emailAddress,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _signPassword,
-            decoration: const InputDecoration(labelText: 'Password (6+ chars)'),
-            obscureText: true,
-          ),
-          const SizedBox(height: 12),
-          ValueListenableBuilder<String>(
-            valueListenable: _signRole,
-            builder: (context, value, _) {
-              return DropdownButtonFormField<String>(
-                initialValue: value,
-                decoration: const InputDecoration(labelText: 'Role'),
-                items: const [
-                  DropdownMenuItem(value: 'reporter', child: Text('Reporter')),
-                  DropdownMenuItem(
-                    value: 'supervisor',
-                    child: Text('Supervisor'),
-                  ),
-                ],
-                onChanged: (v) {
-                  if (v != null) _signRole.value = v;
-                },
-              );
-            },
-          ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _loading ? null : _signUp,
-              child: _loading
-                  ? const CircularProgressIndicator()
-                  : const Text('Create account'),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            TextField(
+              controller: _signFirstName,
+              decoration: InputDecoration(
+                labelText: 'First name',
+                prefixIcon: const Icon(Icons.person),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            TextField(
+              controller: _signLastName,
+              decoration: InputDecoration(
+                labelText: 'Last name',
+                prefixIcon: const Icon(Icons.person),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _signEmail,
+              decoration: InputDecoration(
+                labelText: 'Email',
+                prefixIcon: const Icon(Icons.email),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              keyboardType: TextInputType.emailAddress,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _signPassword,
+              decoration: InputDecoration(
+                labelText: 'Password (6+ chars)',
+                prefixIcon: const Icon(Icons.lock),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              obscureText: true,
+            ),
+            const SizedBox(height: 12),
+            ValueListenableBuilder<String>(
+              valueListenable: _signRole,
+              builder: (context, value, _) {
+                return DropdownButtonFormField<String>(
+                  initialValue: value,
+                  decoration: InputDecoration(
+                    labelText: 'Role',
+                    prefixIcon: const Icon(Icons.person),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'reporter', child: Text('Reporter')),
+                    DropdownMenuItem(
+                      value: 'supervisor',
+                      child: Text('Supervisor'),
+                    ),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) _signRole.value = v;
+                  },
+                );
+              },
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _loading ? null : _signUp,
+                icon: _loading ? const SizedBox.shrink() : const Icon(Icons.person_add),
+                label: _loading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Create account'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

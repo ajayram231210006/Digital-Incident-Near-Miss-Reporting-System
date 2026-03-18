@@ -5,15 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloudinary_public/cloudinary_public.dart';
 
-class ReporterPage extends StatefulWidget {
+// Incident Report Form Widget
+class ReportIncidentForm extends StatefulWidget {
   final User user;
-  const ReporterPage({super.key, required this.user});
+  const ReportIncidentForm({super.key, required this.user});
 
   @override
-  State<ReporterPage> createState() => _ReporterPageState();
+  State<ReportIncidentForm> createState() => _ReportIncidentFormState();
 }
 
-class _ReporterPageState extends State<ReporterPage> {
+class _ReportIncidentFormState extends State<ReportIncidentForm> {
   final _formKey = GlobalKey<FormState>();
   final _typeController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -34,6 +35,18 @@ class _ReporterPageState extends State<ReporterPage> {
   Future<void> _pickImage() async {
     final XFile? picked = await _picker.pickImage(
       source: ImageSource.gallery,
+      maxWidth: 1200,
+    );
+    if (picked != null) {
+      setState(() {
+        _imageFile = File(picked.path);
+      });
+    }
+  }
+
+  Future<void> _takePhoto() async {
+    final XFile? picked = await _picker.pickImage(
+      source: ImageSource.camera,
       maxWidth: 1200,
     );
     if (picked != null) {
@@ -82,27 +95,24 @@ class _ReporterPageState extends State<ReporterPage> {
             : DateTime.now().toIso8601String(),
         'location': _locationController.text.trim(),
         'imageUrl': imageUrl,
+        'status': 'open',
         'createdAt': DateTime.now().toIso8601String(),
       };
 
       await FirebaseDatabase.instance.ref('incidents').push().set(incident);
 
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Incident reported')));
-        // Reset form
-        _formKey.currentState!.reset();
-        setState(() {
-          _incidentDate = null;
-          _imageFile = null;
-        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Incident reported successfully')),
+        );
+        Navigator.of(context).pop();
       }
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -119,113 +129,225 @@ class _ReporterPageState extends State<ReporterPage> {
     if (picked != null) setState(() => _incidentDate = picked);
   }
 
-  void _openReportForm() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) {
-          return Scaffold(
-            appBar: AppBar(title: const Text('Report an Incident')),
-            body: SingleChildScrollView(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom,
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Report an Incident'),
+        elevation: 2,
+        shadowColor: Colors.grey.withOpacity(0.5),
+      ),
+      body: SingleChildScrollView(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        ),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextFormField(
+                controller: _typeController,
+                decoration: InputDecoration(
+                  labelText: 'Incident Type',
+                  hintText: 'e.g., Theft, Fire, Accident',
+                  prefixIcon: const Icon(Icons.category),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Please enter incident type'
+                    : null,
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Form(
-                  key: _formKey,
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _descriptionController,
+                decoration: InputDecoration(
+                  labelText: 'Description',
+                  hintText: 'Describe what happened...',
+                  prefixIcon: const Icon(Icons.description),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                maxLines: 4,
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Please enter a description'
+                    : null,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _locationController,
+                decoration: InputDecoration(
+                  labelText: 'Location',
+                  hintText: 'Where did this happen?',
+                  prefixIcon: const Icon(Icons.location_on),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Please enter location'
+                    : null,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _pickDate,
+                      icon: const Icon(Icons.calendar_today),
+                      label: const Text('Pick Date'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  if (_incidentDate != null)
+                    Text(
+                      _incidentDate!.toLocal().toString().split(' ')[0],
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontSize: 14,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _pickImage,
+                      icon: const Icon(Icons.image),
+                      label: const Text('Gallery'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _takePhoto,
+                      icon: const Icon(Icons.camera_alt),
+                      label: const Text('Camera'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (_imageFile != null) ...[
+                const SizedBox(height: 16),
+                Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: Column(
-                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Report an Incident',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                      ClipRRect(
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(12),
+                          topRight: Radius.circular(12),
+                        ),
+                        child: Image.file(
+                          _imageFile!,
+                          width: double.infinity,
+                          height: 250,
+                          fit: BoxFit.cover,
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _typeController,
-                        decoration: const InputDecoration(
-                          labelText: 'Type (e.g., Theft, Fire, Accident)',
-                        ),
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'Enter type'
-                            : null,
-                      ),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _descriptionController,
-                        decoration: const InputDecoration(
-                          labelText: 'Description',
-                        ),
-                        maxLines: 4,
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'Enter description'
-                            : null,
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _locationController,
-                              decoration: const InputDecoration(
-                                labelText: 'Location',
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.check_circle, color: Colors.green),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Image selected',
+                                style: Theme.of(context).textTheme.bodyMedium,
                               ),
-                              validator: (v) => (v == null || v.trim().isEmpty)
-                                  ? 'Enter location'
-                                  : null,
                             ),
-                          ),
-                          IconButton(
-                            onPressed: _pickDate,
-                            icon: const Icon(Icons.calendar_today),
-                          ),
-                        ],
-                      ),
-                      if (_incidentDate != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: Text(
-                            'Date: ${_incidentDate!.toLocal().toString().split(' ')[0]}',
-                          ),
-                        ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          ElevatedButton.icon(
-                            onPressed: _pickImage,
-                            icon: const Icon(Icons.photo),
-                            label: const Text('Upload Image'),
-                          ),
-                          const SizedBox(width: 12),
-                          if (_imageFile != null) const Text('Image selected'),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _submitting ? null : _submitIncident,
-                          child: _submitting
-                              ? const CircularProgressIndicator()
-                              : const Text('Submit Incident'),
+                            GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _imageFile = null;
+                                });
+                              },
+                              child: Icon(
+                                Icons.close,
+                                color: Colors.red.shade600,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 8),
                     ],
                   ),
                 ),
+              ],
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _submitting ? null : _submitIncident,
+                  icon: _submitting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Icon(Icons.send),
+                  label: Text(_submitting ? 'Submitting...' : 'Submit Report'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
               ),
-            ),
-          );
-        },
+            ],
+          ),
+        ),
       ),
     );
   }
+}
 
+// Legacy ReporterPage - kept for backward compatibility
+class ReporterPage extends StatefulWidget {
+  final User user;
+  const ReporterPage({super.key, required this.user});
+
+  @override
+  State<ReporterPage> createState() => _ReporterPageState();
+}
+
+class _ReporterPageState extends State<ReporterPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -259,7 +381,13 @@ class _ReporterPageState extends State<ReporterPage> {
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.all(12.0),
         child: ElevatedButton(
-          onPressed: _openReportForm,
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => ReportIncidentForm(user: widget.user),
+              ),
+            );
+          },
           child: const Text('Report an incident'),
         ),
       ),

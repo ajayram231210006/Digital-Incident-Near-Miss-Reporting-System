@@ -1,11 +1,6 @@
-# Node / General
-node_modules/
-.env
-dist/
-*.log
-
 # Miscellaneous
 *.class
+*.log
 *.pyc
 *.swp
 .DS_Store
@@ -23,8 +18,10 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# VS Code
-.vscode/
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
 
 # Flutter/Dart/Pub related
 **/doc/api/
@@ -33,8 +30,8 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-build/
-coverage/
+/build/
+/coverage/
 
 # Symbolication related
 app.*.symbols
@@ -42,7 +39,7 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
-# Android build outputs
+# Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile
 /android/app/release

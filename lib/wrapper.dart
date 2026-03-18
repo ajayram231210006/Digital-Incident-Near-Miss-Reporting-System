@@ -4,7 +4,8 @@ import 'package:firebase_database/firebase_database.dart';
 
 import 'homepage.dart';
 import 'login.dart';
-import 'reporter.dart';
+import 'reporter_dashboard.dart';
+import 'supervisor_dashboard.dart';
 
 class Wrapper extends StatelessWidget {
   const Wrapper({super.key});
@@ -35,7 +36,9 @@ class Wrapper extends StatelessWidget {
               }
               final role = snap.data?.snapshot.value as String?;
               if (role == 'reporter') {
-                return ReporterPage(user: user);
+                return ReporterDashboard(user: user);
+              } else if (role == 'supervisor') {
+                return SupervisorDashboard(user: user);
               }
               return const HomePage();
             },
