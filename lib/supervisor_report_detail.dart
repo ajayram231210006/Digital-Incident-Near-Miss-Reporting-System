@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'image_viewer.dart';
+import 'notification_service.dart';
 
 class SupervisorReportDetail extends StatefulWidget {
   final String reportId;
@@ -18,7 +20,9 @@ class SupervisorReportDetail extends StatefulWidget {
 
 class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
+  final NotificationService _notificationService = NotificationService();
   late String _status;
+  late String _severity;
   late String _notes;
   final _notesController = TextEditingController();
   bool _saving = false;
@@ -27,6 +31,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
   void initState() {
     super.initState();
     _status = (widget.report['status'] ?? 'open').toString().toLowerCase();
+    _severity = (widget.report['severity'] ?? '').toString().toLowerCase();
     _notes = widget.report['notes'] ?? '';
     _notesController.text = _notes;
     _loadLatestNotes();
@@ -59,11 +64,126 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
   Future<void> _saveChanges() async {
     setState(() => _saving = true);
     try {
+      // Get the original status, severity, and notes to check if they changed
+      final originalStatus = (widget.report['status'] ?? 'open').toString().toLowerCase();
+      final originalSeverity = (widget.report['severity'] ?? '').toString().toLowerCase();
+      final originalNotes = (widget.report['notes'] ?? '').toString().trim();
+      final newNotes = _notesController.text.trim();
+      final notesChanged = originalNotes != newNotes;
+
+      print('📝 Saving changes - Status: $originalStatus→$_status, Severity: $originalSeverity→$_severity, Notes changed: $notesChanged');
+      
+      // Update the report
       await _dbRef.child('incidents/${widget.reportId}').update({
         'status': _status,
-        'notes': _notesController.text.trim(),
+        'severity': _severity,
+        'notes': newNotes,
         'lastModified': DateTime.now().toIso8601String(),
       });
+
+      final reporterUid = widget.report['reporterUid']?.toString();
+      final reportType = widget.report['type'] ?? 'Report';
+      final supervisorName = FirebaseAuth.instance.currentUser?.displayName ?? 
+                             FirebaseAuth.instance.currentUser?.email?.split('@').first ?? 
+                             'Supervisor';
+
+      print('📋 Report Details - ReporterUID: $reporterUid, Type: $reportType, Supervisor: $supervisorName');
+
+      // Send notification if status or severity changed
+      if (originalStatus != _status || originalSeverity != _severity) {
+        if (reporterUid != null && reporterUid.isNotEmpty) {
+          print('🔔 Notifying reporter of status/severity change');
+          
+          // Create detailed notification message based on changes
+          String notificationTitle = '';
+          String notificationBody = '';
+          
+          if (originalStatus != _status && originalSeverity != _severity) {
+            // Both changed
+            notificationTitle = 'Status & Severity Updated';
+            notificationBody = '$supervisorName updated your $reportType status to ${_status.toUpperCase()} and severity to ${_severity.toUpperCase()}';
+          } else if (originalStatus != _status) {
+            // Only status changed
+            notificationTitle = 'Status Updated: ${_status.toUpperCase()}';
+            notificationBody = '$supervisorName updated your $reportType status to ${_status.toUpperCase()}';
+          } else if (originalSeverity != _severity && _severity.isNotEmpty) {
+            // Only severity changed
+            notificationTitle = 'Severity Updated: ${_severity.toUpperCase()}';
+            notificationBody = '$supervisorName updated your $reportType severity to ${_severity.toUpperCase()}';
+          }
+          
+          if (notificationTitle.isNotEmpty && notificationBody.isNotEmpty) {
+            // Save custom notification with detailed information
+            final notificationData = {
+              'title': notificationTitle,
+              'body': notificationBody,
+              'reportId': widget.reportId,
+              'reportType': reportType,
+              'status': _status,
+              'severity': _severity,
+              'supervisorName': supervisorName,
+              'timestamp': DateTime.now().toIso8601String(),
+              'read': false,
+            };
+
+            await _dbRef
+                .child('userNotifications')
+                .child(reporterUid)
+                .push()
+                .set(notificationData);
+            print('✅ Reporter notified about status/severity change: $notificationTitle');
+          }
+        } else {
+          print('⚠️ Reporter UID is null or empty! Cannot notify reporter.');
+        }
+      }
+
+      // Send notification if notes were added
+      if (notesChanged && newNotes.isNotEmpty) {
+        print('📝 Notes changed - notifying reporter and supervisors');
+        
+        // Get additional report details for better notification formatting
+        final reportTitle = widget.report['description'] ?? reportType;
+        final location = widget.report['location'] ?? 'Unknown Location';
+        final notePreview = newNotes.length > 80 
+            ? '${newNotes.substring(0, 80)}...' 
+            : newNotes;
+        
+        print('📋 Notification details - Title: $reportTitle, Location: $location');
+        
+        // Notify reporter about notes added
+        if (reporterUid != null && reporterUid.isNotEmpty) {
+          final reporterNoteNotificationData = {
+            'title': 'Notes Added: $reportType',
+            'body': '$supervisorName added notes to your report "$reportTitle": "$notePreview"',
+            'reportId': widget.reportId,
+            'reportType': reportType,
+            'reportTitle': reportTitle,
+            'location': location,
+            'supervisorName': supervisorName,
+            'timestamp': DateTime.now().toIso8601String(),
+            'read': false,
+          };
+
+          await _dbRef
+              .child('userNotifications')
+              .child(reporterUid)
+              .push()
+              .set(reporterNoteNotificationData);
+          
+          print('✅ Reporter notified about notes: $reportTitle');
+        }
+
+        // Notify supervisors about notes added
+        await _notificationService.notifySupervisorsOnNoteAdded(
+          reportId: widget.reportId,
+          reportType: reportType,
+          reportTitle: reportTitle,
+          location: location,
+          supervisorName: supervisorName,
+          notePreview: notePreview,
+        );
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -71,6 +191,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
         );
       }
     } catch (e) {
+      print('❌ Error during save: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error updating report: $e')),
@@ -86,219 +207,208 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text('Incident Details'),
         elevation: 2,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                _getStatusColor(_status),
-                _getStatusColor(_status).withOpacity(0.7),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
+        backgroundColor: Colors.blueAccent,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Report Type and Location
-            Card(
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.category_outlined, color: Colors.blueAccent),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Incident Details',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Incident Type',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.grey,
-                          ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.report['type'] ?? 'Unknown',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Location',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.grey,
-                          ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.report['location'] ?? 'Unknown',
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                  ],
+            // Hero Section with Title and Badge
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                color: Colors.grey[50],
+                border: Border.all(
+                  color: Colors.grey[200]!,
+                  width: 1,
                 ),
               ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Reporter Information
-            Card(
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.person_outline, color: Colors.blueAccent),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Reporter Information',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _InfoRow(
-                      label: 'Email',
-                      value: widget.report['reporterEmail'] ?? 'Unknown',
-                      icon: Icons.email_outlined,
-                    ),
-                    const SizedBox(height: 12),
-                    _InfoRow(
-                      label: 'Date Reported',
-                      value: _formatDate(widget.report['createdAt']),
-                      icon: Icons.calendar_today,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Incident Date
-            Card(
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.calendar_month_outlined, color: Colors.orangeAccent),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Incident Date',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.grey,
-                              ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _formatDate(widget.report['date']),
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Description
-            Card(
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.description_outlined, color: Colors.greenAccent),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Description',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      widget.report['description'] ?? 'No description',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Image (if available)
-            if (widget.report['imageUrl'] != null &&
-                (widget.report['imageUrl'] as String).isNotEmpty)
-              Card(
-                elevation: 2,
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        children: [
-                          Icon(Icons.image_outlined, color: Colors.purpleAccent),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Incident Image',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (context) => ImageViewer(
-                                imageUrl: widget.report['imageUrl'],
-                                title: 'Incident Image',
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                (widget.report['type'] ?? 'Unknown').toUpperCase(),
+                                style: const TextStyle(
+                                  color: Colors.blueAccent,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  letterSpacing: 0.5,
+                                ),
                               ),
                             ),
-                          );
-                        },
-                        child: MouseRegion(
-                          cursor: SystemMouseCursors.click,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
+                            const SizedBox(height: 12),
+                            Text(
+                              widget.report['location'] ?? 'Location Unknown',
+                              style: const TextStyle(
+                                color: Colors.black87,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.blue.withOpacity(0.3),
+                            width: 2,
+                          ),
+                        ),
+                        child: _getStatusIcon(_status),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Reported: ${_formatDate(widget.report['createdAt'])}',
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Key Information Grid
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                color: Colors.grey[50],
+                border: Border.all(
+                  color: Colors.grey[200]!,
+                  width: 1,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Incident Information',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildInfoTile(
+                          'Date',
+                          _formatDate(widget.report['date']),
+                          Icons.calendar_today,
+                          Colors.blueAccent,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildInfoTile(
+                          'Reporter',
+                          (widget.report['reporterEmail'] as String?)?.split('@').first ?? 'Unknown',
+                          Icons.person,
+                          Colors.greenAccent,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _buildInfoTile(
+                    'Description',
+                    widget.report['description'] ?? 'No description provided',
+                    Icons.description,
+                    Colors.orangeAccent,
+                    isExpanded: true,
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Image Section (if available)
+            if (widget.report['imageUrl'] != null &&
+                (widget.report['imageUrl'] as String).isNotEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.grey[300]!,
+                    width: 1,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Incident Photo',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    const SizedBox(height: 12),
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => ImageViewer(
+                              imageUrl: widget.report['imageUrl'],
+                              title: 'Incident Image',
+                            ),
+                          ),
+                        );
+                      },
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.1),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
                             child: Image.network(
                               widget.report['imageUrl'],
-                              height: 250,
+                              height: 220,
                               width: double.infinity,
                               fit: BoxFit.cover,
                               errorBuilder: (context, error, stackTrace) {
                                 return Container(
-                                  height: 250,
+                                  height: 220,
                                   decoration: BoxDecoration(
                                     color: Colors.grey[300],
                                     borderRadius: BorderRadius.circular(12),
@@ -312,65 +422,89 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                           ),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
 
-            // Status Management
-            Card(
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.assignment_outlined, color: Colors.redAccent),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Status',
-                          style: Theme.of(context).textTheme.titleMedium,
+            // Management Controls Section
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                color: Colors.grey[50],
+                border: Border.all(
+                  color: Colors.grey[200]!,
+                  width: 1,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Manage Incident',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    SegmentedButton<String>(
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Status Selection
+                  Text(
+                    'Current Status',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: Colors.grey[700],
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  const SizedBox(height: 10),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SegmentedButton<String>(
                       segments: const [
                         ButtonSegment(
                           value: 'open',
-                          label: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.radio_button_unchecked, size: 18),
-                              SizedBox(width: 6),
-                              Text('Open'),
-                            ],
+                          label: Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.radio_button_unchecked, size: 16),
+                                SizedBox(width: 4),
+                                Text('Open', style: TextStyle(fontSize: 13)),
+                              ],
+                            ),
                           ),
                         ),
                         ButtonSegment(
                           value: 'active',
-                          label: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.hourglass_bottom, size: 18),
-                              SizedBox(width: 6),
-                              Text('Active'),
-                            ],
+                          label: Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.hourglass_bottom, size: 16),
+                                SizedBox(width: 4),
+                                Text('Active', style: TextStyle(fontSize: 13)),
+                              ],
+                            ),
                           ),
                         ),
                         ButtonSegment(
                           value: 'closed',
-                          label: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.check_circle, size: 18),
-                              SizedBox(width: 6),
-                              Text('Closed'),
-                            ],
+                          label: Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.check_circle, size: 16),
+                                SizedBox(width: 4),
+                                Text('Closed', style: TextStyle(fontSize: 13)),
+                              ],
+                            ),
                           ),
                         ),
                       ],
@@ -381,56 +515,164 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                         });
                       },
                     ),
-                  ],
-                ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // Severity Selection with Color Coding
+                  Text(
+                    'Severity Level',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: Colors.grey[700],
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  const SizedBox(height: 10),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(
+                          value: '',
+                          label: Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.block, size: 16),
+                                SizedBox(width: 4),
+                                Text('Not Set', style: TextStyle(fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        ButtonSegment(
+                          value: 'low',
+                          label: Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.trending_down, size: 16),
+                                SizedBox(width: 4),
+                                Text('Low', style: TextStyle(fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        ButtonSegment(
+                          value: 'medium',
+                          label: Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.trending_flat, size: 16),
+                                SizedBox(width: 4),
+                                Text('Medium', style: TextStyle(fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        ButtonSegment(
+                          value: 'high',
+                          label: Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.trending_up, size: 16),
+                                SizedBox(width: 4),
+                                Text('High', style: TextStyle(fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        ButtonSegment(
+                          value: 'critical',
+                          label: Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.crisis_alert, size: 16),
+                                SizedBox(width: 4),
+                                Text('Critical', style: TextStyle(fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                      selected: {_severity},
+                      onSelectionChanged: (Set<String> newSelection) {
+                        setState(() {
+                          _severity = newSelection.first;
+                        });
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
 
-            // Supervisor Notes
-            Card(
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.note_outlined, color: Colors.tealAccent),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Supervisor Notes',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _notesController,
-                      maxLines: 5,
-                      decoration: InputDecoration(
-                        hintText: 'Add your notes about this incident...',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: Colors.grey[300]!),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(
-                            color: Colors.blueAccent,
-                            width: 2,
-                          ),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 12,
+            // Notes Section
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Colors.grey[300]!,
+                  width: 1,
+                ),
+                color: Colors.white,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.note_outlined,
+                        color: Colors.tealAccent,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Supervisor Notes',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _notesController,
+                    maxLines: 5,
+                    decoration: InputDecoration(
+                      hintText: 'Add your observations and actions taken...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: Colors.grey[300]!),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(
+                          color: Colors.blueAccent,
+                          width: 2,
                         ),
                       ),
+                      filled: true,
+                      fillColor: Colors.grey[50],
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
 
@@ -443,10 +685,13 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                 onPressed: _saving ? null : _saveChanges,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.blueAccent,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  disabledBackgroundColor: Colors.grey[300],
+                  padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(12),
                   ),
+                  elevation: 4,
+                  shadowColor: Colors.blue.withOpacity(0.3),
                 ),
                 icon: _saving
                     ? const SizedBox(
@@ -464,6 +709,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                     color: Colors.white,
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
+                    letterSpacing: 0.3,
                   ),
                 ),
               ),
@@ -474,6 +720,69 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
         ),
       ),
     );
+  }
+
+  Widget _buildInfoTile(
+    String label,
+    String value,
+    IconData icon,
+    Color color, {
+    bool isExpanded = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: color.withOpacity(0.08),
+        border: Border.all(
+          color: color.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            maxLines: isExpanded ? 4 : 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: isExpanded ? 13 : 12,
+              fontWeight: FontWeight.w500,
+              color: Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Icon _getStatusIcon(String status) {
+    switch (status.toLowerCase()) {
+      case 'closed':
+        return const Icon(Icons.task_alt, color: Colors.white, size: 28);
+      case 'active':
+        return const Icon(Icons.loop, color: Colors.white, size: 28);
+      case 'open':
+      default:
+        return const Icon(Icons.radio_button_unchecked, color: Colors.white, size: 28);
+    }
   }
 
   String _formatDate(dynamic dateString) {
@@ -488,56 +797,6 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
     }
   }
 
-  Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'closed':
-        return Colors.green;
-      case 'active':
-        return Colors.orange;
-      case 'open':
-      default:
-        return Colors.amber;
-    }
-  }
-
-
 }
 
-class _InfoRow extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData? icon;
 
-  const _InfoRow({
-    required this.label,
-    required this.value,
-    this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        if (icon != null) ...[
-          Icon(icon, size: 18, color: Colors.grey),
-          const SizedBox(width: 8),
-        ],
-        SizedBox(
-          width: icon != null ? 80 : 100,
-          child: Text(
-            label,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.grey,
-                ),
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-        ),
-      ],
-    );
-  }
-}
