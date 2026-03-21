@@ -9,326 +9,808 @@ class LoginPage extends StatefulWidget {
   State<LoginPage> createState() => _LoginPageState();
 }
 
-class _LoginPageState extends State<LoginPage>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  final _loginEmail = TextEditingController();
-  final _loginPassword = TextEditingController();
-  final _signEmail = TextEditingController();
-  final _signPassword = TextEditingController();
-  final _signFirstName = TextEditingController();
-  final _signLastName = TextEditingController();
-  final ValueNotifier<String> _loginRole = ValueNotifier('reporter');
-  final ValueNotifier<String> _signRole = ValueNotifier('reporter');
-  bool _loading = false;
+class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
+  late AnimationController _slideController;
+  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 1),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _slideController, curve: Curves.easeOutQuad));
+
+    _slideController.forward();
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
-    _loginEmail.dispose();
-    _loginPassword.dispose();
-    _signEmail.dispose();
-    _signPassword.dispose();
-    _signFirstName.dispose();
-    _signLastName.dispose();
-    _loginRole.dispose();
-    _signRole.dispose();
+    _slideController.dispose();
     super.dispose();
   }
 
-  Future<void> _showMessage(String message) async {
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  Future<void> _signIn() async {
-    setState(() => _loading = true);
-    try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _loginEmail.text.trim(),
-        password: _loginPassword.text.trim(),
-      );
-      // Enforce role: compare stored role in Realtime Database with selected role
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        final ref = FirebaseDatabase.instance.ref('users/${user.uid}/role');
-        final snapshot = await ref.get();
-        if (!snapshot.exists) {
-          await FirebaseAuth.instance.signOut();
-          await _showMessage('No user profile found. Please sign up first.');
-          return;
-        }
-        final storedRole = snapshot.value as String?;
-        if (storedRole != null && storedRole != _loginRole.value) {
-          await FirebaseAuth.instance.signOut();
-          await _showMessage(
-            'Role mismatch: your account is registered as "$storedRole". Please select that role to login.',
-          );
-          return;
-        }
-      }
-    } on FirebaseAuthException catch (e) {
-      await _showMessage(e.message ?? 'Sign in failed');
-    } catch (e) {
-      await _showMessage('Sign in failed');
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _signUp() async {
-    setState(() => _loading = true);
-    try {
-      await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: _signEmail.text.trim(),
-        password: _signPassword.text.trim(),
-      );
-      // Update the user's display name with first + last name and persist role to Realtime Database
-      final user = FirebaseAuth.instance.currentUser;
-      final first = _signFirstName.text.trim();
-      final last = _signLastName.text.trim();
-      final role = _signRole.value;
-      if (user != null) {
-        await user.updateDisplayName(
-          (first.isNotEmpty || last.isNotEmpty) ? '$first $last' : null,
-        );
-        await FirebaseDatabase.instance.ref('users/${user.uid}').set({
-          'firstName': first,
-          'lastName': last,
-          'email': user.email,
-          'role': role,
-          'createdAt': DateTime.now().toIso8601String(),
-        });
-      }
-      await _showMessage('Account created. You are now signed in.');
-    } on FirebaseAuthException catch (e) {
-      await _showMessage(e.message ?? 'Sign up failed');
-    } catch (e) {
-      await _showMessage('Sign up failed');
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Widget _buildLoginTab() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            TextField(
-              controller: _loginEmail,
-              decoration: InputDecoration(
-                labelText: 'Email',
-                prefixIcon: const Icon(Icons.email),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              keyboardType: TextInputType.emailAddress,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _loginPassword,
-              decoration: InputDecoration(
-                labelText: 'Password',
-                prefixIcon: const Icon(Icons.lock),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              obscureText: true,
-            ),
-            const SizedBox(height: 16),
-            ValueListenableBuilder<String>(
-              valueListenable: _loginRole,
-              builder: (context, value, _) {
-                return DropdownButtonFormField<String>(
-                  initialValue: value,
-                  decoration: InputDecoration(
-                    labelText: 'Role',
-                    prefixIcon: const Icon(Icons.person),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'reporter', child: Text('Reporter')),
-                    DropdownMenuItem(
-                      value: 'supervisor',
-                      child: Text('Supervisor'),
-                    ),
-                  ],
-                  onChanged: (v) {
-                    if (v != null) _loginRole.value = v;
-                  },
-                );
-              },
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _loading ? null : _signIn,
-                icon: _loading ? const SizedBox.shrink() : const Icon(Icons.login),
-                label: _loading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Login'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+  void _showLoginDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black.withOpacity(0.85),
+      builder: (context) => _LoginDialog(),
     );
   }
 
-  Widget _buildSignUpTab() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            TextField(
-              controller: _signFirstName,
-              decoration: InputDecoration(
-                labelText: 'First name',
-                prefixIcon: const Icon(Icons.person),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _signLastName,
-              decoration: InputDecoration(
-                labelText: 'Last name',
-                prefixIcon: const Icon(Icons.person),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _signEmail,
-              decoration: InputDecoration(
-                labelText: 'Email',
-                prefixIcon: const Icon(Icons.email),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              keyboardType: TextInputType.emailAddress,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _signPassword,
-              decoration: InputDecoration(
-                labelText: 'Password (6+ chars)',
-                prefixIcon: const Icon(Icons.lock),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              obscureText: true,
-            ),
-            const SizedBox(height: 12),
-            ValueListenableBuilder<String>(
-              valueListenable: _signRole,
-              builder: (context, value, _) {
-                return DropdownButtonFormField<String>(
-                  initialValue: value,
-                  decoration: InputDecoration(
-                    labelText: 'Role',
-                    prefixIcon: const Icon(Icons.person),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'reporter', child: Text('Reporter')),
-                    DropdownMenuItem(
-                      value: 'supervisor',
-                      child: Text('Supervisor'),
-                    ),
-                  ],
-                  onChanged: (v) {
-                    if (v != null) _signRole.value = v;
-                  },
-                );
-              },
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _loading ? null : _signUp,
-                icon: _loading ? const SizedBox.shrink() : const Icon(Icons.person_add),
-                label: _loading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Create account'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+  void _showSignUpDialog() {
+    // Close the login dialog if it's open
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+    // Show signup dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black.withOpacity(0.85),
+      builder: (context) => _SignUpDialog(onBackToLogin: _showLoginDialog),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Authenticate'),
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Login'),
-            Tab(text: 'Sign Up'),
-          ],
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.deepPurple.shade900,
+              Colors.deepPurple.shade600,
+              Colors.blue.shade400,
+            ],
+          ),
+        ),
+        child: SlideTransition(
+          position: _slideAnimation,
+          child: Center(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 100,
+                    height: 100,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Colors.white, Colors.blue.shade100],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.3),
+                          blurRadius: 20,
+                          spreadRadius: 5,
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.security_outlined,
+                      size: 50,
+                      color: Colors.deepPurple,
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+                  const Text(
+                    'Incident Report System',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Secure Reporting Platform',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 50),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: Column(
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: _showLoginDialog,
+                          icon: const Icon(Icons.login, size: 20),
+                          label: const Text('Open Login'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 40,
+                              vertical: 16,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        RichText(
+                          textAlign: TextAlign.center,
+                          text: TextSpan(
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 14,
+                            ),
+                            children: [
+                              const TextSpan(text: 'Don\'t have an account? '),
+                              WidgetSpan(
+                                child: GestureDetector(
+                                  onTap: _showSignUpDialog,
+                                  child: Text(
+                                    'Sign up',
+                                    style: TextStyle(
+                                      color: Colors.cyan.shade200,
+                                      fontWeight: FontWeight.bold,
+                                      decoration: TextDecoration.underline,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          SingleChildScrollView(child: _buildLoginTab()),
-          SingleChildScrollView(child: _buildSignUpTab()),
+    );
+  }
+}
+
+class _LoginDialog extends StatefulWidget {
+  const _LoginDialog();
+
+  @override
+  State<_LoginDialog> createState() => _LoginDialogState();
+}
+
+class _LoginDialogState extends State<_LoginDialog> with TickerProviderStateMixin {
+  late AnimationController _scaleController;
+  late Animation<double> _scaleAnimation;
+  late AnimationController _fieldController;
+
+  final _loginEmail = TextEditingController();
+  final _loginPassword = TextEditingController();
+  final ValueNotifier<String> _loginRole = ValueNotifier('reporter');
+  bool _loading = false;
+  bool _obscurePassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _scaleController = AnimationController(
+      duration: const Duration(milliseconds: 400),
+      vsync: this,
+    );
+
+    _fieldController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _scaleController, curve: Curves.easeOutQuad),
+    );
+
+    _scaleController.forward();
+    _fieldController.forward();
+  }
+
+  @override
+  void dispose() {
+    _scaleController.dispose();
+    _fieldController.dispose();
+    _loginEmail.dispose();
+    _loginPassword.dispose();
+    _loginRole.dispose();
+    super.dispose();
+  }
+
+  Future<void> _showMessage(String message) async {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: const TextStyle(
+            color: Colors.black,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        backgroundColor: Colors.lime.shade400,
+        duration: const Duration(seconds: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(20),
+        elevation: 10,
+      ),
+    );
+  }
+
+  Future<void> _signIn() async {
+    if (_loginEmail.text.isEmpty || _loginPassword.text.isEmpty) {
+      await _showMessage('Please fill in all fields');
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      // Sign in with email and password
+      final userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _loginEmail.text.trim(),
+        password: _loginPassword.text.trim(),
+      );
+
+      // Verify that the selected role matches the user's actual role in database
+      final user = userCredential.user;
+      if (user != null) {
+        final snapshot = await FirebaseDatabase.instance
+            .ref('users/${user.uid}/role')
+            .get();
+
+        final actualRole = snapshot.value as String?;
+
+        if (actualRole == null) {
+          // User profile not found
+          await FirebaseAuth.instance.signOut();
+          await _showMessage('User profile not found. Please sign up first.');
+          if (mounted) setState(() => _loading = false);
+          return;
+        }
+
+        if (actualRole != _loginRole.value) {
+          // Role mismatch - user tried to login with wrong role
+          await FirebaseAuth.instance.signOut();
+          await _showMessage(
+            'Role mismatch! Your actual role is "$actualRole" but you selected "${_loginRole.value}". Please select the correct role.',
+          );
+          if (mounted) setState(() => _loading = false);
+          return;
+        }
+
+        // Role matches - close dialog and proceed
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+      }
+    } on FirebaseAuthException catch (e) {
+      await _showMessage(e.message ?? 'Sign in failed');
+      if (mounted) setState(() => _loading = false);
+    } catch (e) {
+      await _showMessage('Sign in failed');
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScaleTransition(
+      scale: _scaleAnimation,
+      child: AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.login, color: Colors.blue.shade700),
+            const SizedBox(width: 12),
+            const Text('Login', style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(-1, 0),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(parent: _fieldController, curve: Curves.easeOutQuad)),
+                child: FadeTransition(
+                  opacity: _fieldController,
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: _loginEmail,
+                        decoration: InputDecoration(
+                          labelText: 'Email',
+                          prefixIcon: const Icon(Icons.email),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Colors.blue,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                        keyboardType: TextInputType.emailAddress,
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _loginPassword,
+                        obscureText: _obscurePassword,
+                        decoration: InputDecoration(
+                          labelText: 'Password',
+                          prefixIcon: const Icon(Icons.lock),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscurePassword = !_obscurePassword;
+                              });
+                            },
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Colors.blue,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      ValueListenableBuilder<String>(
+                        valueListenable: _loginRole,
+                        builder: (context, value, _) {
+                          return DropdownButtonFormField<String>(
+                            value: value,
+                            decoration: InputDecoration(
+                              labelText: 'Role',
+                              prefixIcon: const Icon(Icons.person),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(
+                                  color: Colors.blue,
+                                  width: 2,
+                                ),
+                              ),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'reporter',
+                                child: Text('Reporter'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'supervisor',
+                                child: Text('Supervisor'),
+                              ),
+                            ],
+                            onChanged: (v) {
+                              if (v != null) _loginRole.value = v;
+                            },
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _loading ? null : _signIn,
+                  icon: _loading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Icon(Icons.login),
+                  label: Text(_loading ? 'Logging in...' : 'Login'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade700,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: _loading ? null : () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _SignUpDialog extends StatefulWidget {
+  final VoidCallback onBackToLogin;
+
+  const _SignUpDialog({required this.onBackToLogin});
+
+  @override
+  State<_SignUpDialog> createState() => _SignUpDialogState();
+}
+
+class _SignUpDialogState extends State<_SignUpDialog> with TickerProviderStateMixin {
+  late AnimationController _scaleController;
+  late Animation<double> _scaleAnimation;
+  late AnimationController _fieldController;
+
+  final _signFirstName = TextEditingController();
+  final _signLastName = TextEditingController();
+  final _signEmail = TextEditingController();
+  final _signPassword = TextEditingController();
+  final ValueNotifier<String> _signRole = ValueNotifier('reporter');
+  bool _loading = false;
+  bool _obscurePassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _scaleController = AnimationController(
+      duration: const Duration(milliseconds: 400),
+      vsync: this,
+    );
+
+    _fieldController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _scaleController, curve: Curves.easeOutQuad),
+    );
+
+    _scaleController.forward();
+    _fieldController.forward();
+  }
+
+  @override
+  void dispose() {
+    _scaleController.dispose();
+    _fieldController.dispose();
+    _signFirstName.dispose();
+    _signLastName.dispose();
+    _signEmail.dispose();
+    _signPassword.dispose();
+    _signRole.dispose();
+    super.dispose();
+  }
+
+  Future<void> _showMessage(String message) async {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: const TextStyle(
+            color: Colors.black,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        backgroundColor: Colors.lime.shade400,
+        duration: const Duration(seconds: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(20),
+        elevation: 10,
+      ),
+    );
+  }
+
+  Future<void> _signUp() async {
+    if (_signFirstName.text.isEmpty ||
+        _signLastName.text.isEmpty ||
+        _signEmail.text.isEmpty ||
+        _signPassword.text.isEmpty) {
+      await _showMessage('Please fill in all fields');
+      return;
+    }
+
+    if (_signPassword.text.length < 6) {
+      await _showMessage('Password must be at least 6 characters');
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      // Create user account
+      await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: _signEmail.text.trim(),
+        password: _signPassword.text.trim(),
+      );
+
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final first = _signFirstName.text.trim();
+        final last = _signLastName.text.trim();
+        final role = _signRole.value;
+
+        // Update display name
+        await user.updateDisplayName(
+          (first.isNotEmpty || last.isNotEmpty) ? '$first $last' : null,
+        );
+
+        // Save user profile to database (non-blocking)
+        FirebaseDatabase.instance.ref('users/${user.uid}').set({
+          'firstName': first,
+          'lastName': last,
+          'email': user.email,
+          'role': role,
+          'createdAt': DateTime.now().toIso8601String(),
+        }).catchError((e) {
+          print('Error saving profile: $e');
+        });
+
+        // Close dialog immediately - profile save happens in background
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+      }
+    } on FirebaseAuthException catch (e) {
+      await _showMessage(e.message ?? 'Sign up failed');
+      if (mounted) setState(() => _loading = false);
+    } catch (e) {
+      await _showMessage('Sign up failed');
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _backToLogin() {
+    // Close signup dialog
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+    // Show login dialog
+    widget.onBackToLogin();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScaleTransition(
+      scale: _scaleAnimation,
+      child: AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.person_add, color: Colors.green.shade700),
+            const SizedBox(width: 12),
+            const Text('Sign Up', style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(-1, 0),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(parent: _fieldController, curve: Curves.easeOutQuad)),
+                child: FadeTransition(
+                  opacity: _fieldController,
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: _signFirstName,
+                        decoration: InputDecoration(
+                          labelText: 'First name',
+                          prefixIcon: const Icon(Icons.person),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Colors.green,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _signLastName,
+                        decoration: InputDecoration(
+                          labelText: 'Last name',
+                          prefixIcon: const Icon(Icons.person),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Colors.green,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _signEmail,
+                        decoration: InputDecoration(
+                          labelText: 'Email',
+                          prefixIcon: const Icon(Icons.email),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Colors.green,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                        keyboardType: TextInputType.emailAddress,
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _signPassword,
+                        obscureText: _obscurePassword,
+                        decoration: InputDecoration(
+                          labelText: 'Password (6+ chars)',
+                          prefixIcon: const Icon(Icons.lock),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscurePassword = !_obscurePassword;
+                              });
+                            },
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Colors.green,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ValueListenableBuilder<String>(
+                        valueListenable: _signRole,
+                        builder: (context, value, _) {
+                          return DropdownButtonFormField<String>(
+                            value: value,
+                            decoration: InputDecoration(
+                              labelText: 'Role',
+                              prefixIcon: const Icon(Icons.person),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(
+                                  color: Colors.green,
+                                  width: 2,
+                                ),
+                              ),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'reporter',
+                                child: Text('Reporter'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'supervisor',
+                                child: Text('Supervisor'),
+                              ),
+                            ],
+                            onChanged: (v) {
+                              if (v != null) _signRole.value = v;
+                            },
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _loading ? null : _signUp,
+                  icon: _loading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Icon(Icons.person_add),
+                  label: Text(_loading ? 'Creating account...' : 'Sign Up'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.shade700,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton(
+                  onPressed: _loading ? null : _backToLogin,
+                  child: RichText(
+                    text: TextSpan(
+                      style: const TextStyle(color: Colors.black54, fontSize: 14),
+                      children: [
+                        const TextSpan(text: 'Already have an account? '),
+                        WidgetSpan(
+                          child: Text(
+                            'Login',
+                            style: TextStyle(
+                              color: Colors.blue.shade700,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

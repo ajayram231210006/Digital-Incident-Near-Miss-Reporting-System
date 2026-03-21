@@ -4,6 +4,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloudinary_public/cloudinary_public.dart';
+import 'notification_service.dart';
 
 // Incident Report Form Widget
 class ReportIncidentForm extends StatefulWidget {
@@ -23,6 +24,7 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
   File? _imageFile;
   bool _submitting = false;
   final ImagePicker _picker = ImagePicker();
+  final NotificationService _notificationService = NotificationService();
 
   @override
   void dispose() {
@@ -99,7 +101,16 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
         'createdAt': DateTime.now().toIso8601String(),
       };
 
-      await FirebaseDatabase.instance.ref('incidents').push().set(incident);
+      final newReportRef = await FirebaseDatabase.instance.ref('incidents').push();
+      await newReportRef.set(incident);
+
+      // Notify all supervisors about the new report
+      await _notificationService.notifySupervisorsOnNewReport(
+        reportId: newReportRef.key ?? 'unknown',
+        reportType: _typeController.text.trim(),
+        reporterEmail: widget.user.email ?? 'Unknown Reporter',
+        location: _locationController.text.trim(),
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

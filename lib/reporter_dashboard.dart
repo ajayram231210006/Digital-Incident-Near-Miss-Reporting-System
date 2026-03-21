@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'reporter.dart' show ReportIncidentForm;
 import 'reporter_reports_list.dart';
+import 'notifications_viewer.dart';
+import 'notification_service.dart';
 
 class ReporterDashboard extends StatefulWidget {
   final User user;
@@ -14,6 +16,7 @@ class ReporterDashboard extends StatefulWidget {
 
 class _ReporterDashboardState extends State<ReporterDashboard> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
+  final NotificationService _notificationService = NotificationService();
 
   Stream<Map<String, int>> _getReportStatsStream() {
     return _dbRef.child('incidents').onValue.map((event) {
@@ -76,6 +79,52 @@ class _ReporterDashboardState extends State<ReporterDashboard> {
         shadowColor: Colors.grey.withOpacity(0.5),
         backgroundColor: Colors.green,
         actions: [
+          StreamBuilder<int>(
+            stream: _notificationService.getUnreadNotificationCount(widget.user.uid),
+            builder: (context, snapshot) {
+              final unreadCount = snapshot.data ?? 0;
+              return Stack(
+                children: [
+                  IconButton(
+                    tooltip: 'Notifications',
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => NotificationsViewer(user: widget.user),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.notifications),
+                  ),
+                  if (unreadCount > 0)
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 20,
+                          minHeight: 20,
+                        ),
+                        child: Text(
+                          unreadCount > 99 ? '99+' : unreadCount.toString(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
           IconButton(
             tooltip: 'Sign out',
             onPressed: () async {
