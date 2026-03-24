@@ -99,6 +99,37 @@ class NotificationService {
     // Handle navigation based on notification data
   }
 
+  /// Get count of new/unread reports for supervisors
+  Stream<int> getNewReportsCount() {
+    return _dbRef.child('incidents').onValue.map((event) {
+      int newReportCount = 0;
+      if (event.snapshot.exists) {
+        final data = event.snapshot.value as Map?;
+        if (data != null) {
+          final now = DateTime.now();
+          data.forEach((key, value) {
+            if (value is Map) {
+              // Count reports created in the last 24 hours
+              try {
+                var createdAtStr = value['createdAt'] ?? value['timestamp'];
+                if (createdAtStr != null) {
+                  final createdAt = DateTime.parse(createdAtStr.toString());
+                  final hoursDiff = now.difference(createdAt).inHours;
+                  if (hoursDiff <= 24) {
+                    newReportCount++;
+                  }
+                }
+              } catch (e) {
+                // Ignore date parsing errors
+              }
+            }
+          });
+        }
+      }
+      return newReportCount;
+    });
+  }
+
   /// Send notification to a reporter when their report is updated
   Future<bool> notifyReporterOnUpdate({
     required String reporterUid,
