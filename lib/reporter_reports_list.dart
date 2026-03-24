@@ -17,14 +17,26 @@ class ReporterReportsList extends StatefulWidget {
   State<ReporterReportsList> createState() => _ReporterReportsListState();
 }
 
-class _ReporterReportsListState extends State<ReporterReportsList> {
+class _ReporterReportsListState extends State<ReporterReportsList>
+    with SingleTickerProviderStateMixin {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   late String _selectedFilter;
+  late AnimationController _animationController;
 
   @override
   void initState() {
     super.initState();
     _selectedFilter = widget.filterStatus ?? 'all';
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
   }
 
   @override
@@ -33,42 +45,47 @@ class _ReporterReportsListState extends State<ReporterReportsList> {
       appBar: AppBar(
         title: const Text('My Reports'),
         elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
       ),
       body: Column(
         children: [
-          // Filter Tabs
+          // Modern Filter Chips
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.all(8.0),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             child: Row(
               children: [
-                _FilterChip(
+                _ModernFilterChip(
                   label: 'All',
                   isSelected: _selectedFilter == 'all',
                   onPressed: () {
                     setState(() => _selectedFilter = 'all');
                   },
                 ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Awaiting Review',
+                const SizedBox(width: 10),
+                _ModernFilterChip(
+                  label: 'Pending',
                   isSelected: _selectedFilter == 'open',
+                  count: 0,
                   onPressed: () {
                     setState(() => _selectedFilter = 'open');
                   },
                 ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'In Progress',
+                const SizedBox(width: 10),
+                _ModernFilterChip(
+                  label: 'Active',
                   isSelected: _selectedFilter == 'active',
+                  count: 0,
                   onPressed: () {
                     setState(() => _selectedFilter = 'active');
                   },
                 ),
-                const SizedBox(width: 8),
-                _FilterChip(
+                const SizedBox(width: 10),
+                _ModernFilterChip(
                   label: 'Resolved',
                   isSelected: _selectedFilter == 'closed',
+                  count: 0,
                   onPressed: () {
                     setState(() => _selectedFilter = 'closed');
                   },
@@ -86,14 +103,46 @@ class _ReporterReportsListState extends State<ReporterReportsList> {
                 }
 
                 if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
-                  return const Center(
-                    child: Text('No reports found'),
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.inbox_outlined,
+                            size: 64, color: Colors.grey.shade300),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No reports yet',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
                   );
                 }
 
                 final data = snapshot.data!.snapshot.value as Map?;
                 if (data == null) {
-                  return const Center(child: Text('No reports found'));
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.inbox_outlined,
+                            size: 64, color: Colors.grey.shade300),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No reports found',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
                 }
 
                 final reports = <Map<String, dynamic>>[];
@@ -101,12 +150,16 @@ class _ReporterReportsListState extends State<ReporterReportsList> {
                   if (value is Map) {
                     final reporterUid = value['reporterUid']?.toString() ?? '';
                     if (reporterUid == widget.user.uid) {
-                      final status = (value['status'] ?? 'open').toString().toLowerCase();
+                      final status =
+                          (value['status'] ?? 'open').toString().toLowerCase();
 
                       bool includeReport = _selectedFilter == 'all';
-                      if (_selectedFilter == 'open' && status == 'open') includeReport = true;
-                      if (_selectedFilter == 'active' && status == 'active') includeReport = true;
-                      if (_selectedFilter == 'closed' && status == 'closed') includeReport = true;
+                      if (_selectedFilter == 'open' && status == 'open')
+                        includeReport = true;
+                      if (_selectedFilter == 'active' && status == 'active')
+                        includeReport = true;
+                      if (_selectedFilter == 'closed' && status == 'closed')
+                        includeReport = true;
 
                       if (includeReport) {
                         reports.add({
@@ -126,15 +179,41 @@ class _ReporterReportsListState extends State<ReporterReportsList> {
                   }
                 });
 
+                // Sort reports by date in descending order (newest first)
+                reports.sort((a, b) {
+                  try {
+                    final dateA = DateTime.tryParse(a['date']?.toString() ?? '') ?? DateTime(1970);
+                    final dateB = DateTime.tryParse(b['date']?.toString() ?? '') ?? DateTime(1970);
+                    return dateB.compareTo(dateA); // Descending order (newest first)
+                  } catch (e) {
+                    return 0;
+                  }
+                });
+
                 if (reports.isEmpty) {
-                  return const Center(
-                    child: Text('No reports found'),
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.search_off,
+                            size: 64, color: Colors.grey.shade300),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No ${_selectedFilter != 'all' ? _selectedFilter : ''} reports',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
                   );
                 }
 
                 return ListView.builder(
                   itemCount: reports.length,
-                  padding: const EdgeInsets.all(8.0),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   itemBuilder: (context, index) {
                     final report = reports[index];
                     final status = report['status'] as String;
@@ -144,7 +223,7 @@ class _ReporterReportsListState extends State<ReporterReportsList> {
                             ? Colors.orange
                             : Colors.amber;
 
-                    return _ReportCardWidget(
+                    return _ModernReportCard(
                       report: report,
                       statusColor: statusColor,
                       onTap: () {
@@ -173,36 +252,38 @@ class _ReporterReportsListState extends State<ReporterReportsList> {
   }
 }
 
-class _ReportCardWidget extends StatefulWidget {
+// Modern Report Card Widget with Swipe Support
+class _ModernReportCard extends StatefulWidget {
   final Map<String, dynamic> report;
   final Color statusColor;
   final VoidCallback onTap;
 
-  const _ReportCardWidget({
+  const _ModernReportCard({
     required this.report,
     required this.statusColor,
     required this.onTap,
   });
 
   @override
-  State<_ReportCardWidget> createState() => _ReportCardWidgetState();
+  State<_ModernReportCard> createState() => _ModernReportCardState();
 }
 
-class _ReportCardWidgetState extends State<_ReportCardWidget>
+class _ModernReportCardState extends State<_ModernReportCard>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
+  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 150),
+      duration: const Duration(milliseconds: 200),
       vsync: this,
     );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.98).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _slideAnimation = Tween<Offset>(
+      begin: Offset.zero,
+      end: const Offset(0.1, 0),
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override
@@ -220,70 +301,252 @@ class _ReportCardWidgetState extends State<_ReportCardWidget>
         widget.onTap();
       },
       onTapCancel: () => _controller.reverse(),
-      child: ScaleTransition(
-        scale: _scaleAnimation,
-        child: Card(
-          margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-          elevation: 4,
-          shadowColor: widget.statusColor.withOpacity(0.3),
-          child: ListTile(
-            contentPadding: const EdgeInsets.all(12),
-            leading: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: widget.statusColor.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                Icons.report_problem,
-                color: widget.statusColor,
-              ),
+      child: SlideTransition(
+        position: _slideAnimation,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: widget.statusColor.withOpacity(0.1),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-            title: Text(
-              widget.report['type'] ?? 'Unknown',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: Text(widget.report['location'] ?? 'Unknown'),
-            trailing: Chip(
-              label: Text(
-                widget.report['status'].toString().toUpperCase(),
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Colors.white, Colors.grey.shade50],
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    // Header with Status
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom:
+                              BorderSide(color: Colors.grey.shade100, width: 1),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          // Type Icon
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: widget.statusColor.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(
+                              Icons.warning_amber_rounded,
+                              color: widget.statusColor,
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          // Title and Type
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.report['type'] ?? 'Unknown',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  widget.report['location'] ?? 'No location',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          // Status Badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: widget.statusColor.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: widget.statusColor.withOpacity(0.3),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 6,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: widget.statusColor,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  widget.report['status']
+                                      .toString()
+                                      .toUpperCase(),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: widget.statusColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Content
+                    Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Description
+                          Text(
+                            widget.report['description'] ?? 'No description',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade700,
+                              height: 1.4,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 10),
+                          // Date
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.access_time,
+                                size: 14,
+                                color: Colors.grey.shade500,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                _formatDate(
+                                    widget.report['date'] ?? 'Unknown'),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              backgroundColor: widget.statusColor,
             ),
           ),
         ),
       ),
     );
-  }
-}
+    }
 
-class _FilterChip extends StatelessWidget {
+    String _formatDate(String dateString) {
+      try {
+        if (dateString == 'Unknown') return 'Unknown date';
+        final date = DateTime.parse(dateString);
+        final now = DateTime.now();
+        final difference = now.difference(date);
+
+        if (difference.inDays == 0) {
+          if (difference.inHours == 0) {
+            return '${difference.inMinutes}m ago';
+          }
+          return '${difference.inHours}h ago';
+        } else if (difference.inDays < 7) {
+          return '${difference.inDays}d ago';
+        } else {
+          return '${date.day}/${date.month}/${date.year}';
+        }
+      } catch (e) {
+        return 'Unknown date';
+      }
+    }
+  }
+
+// Modern Filter Chip
+class _ModernFilterChip extends StatelessWidget {
   final String label;
   final bool isSelected;
+  final int? count;
   final VoidCallback onPressed;
 
-  const _FilterChip({
+  const _ModernFilterChip({
     required this.label,
     required this.isSelected,
+    this.count,
     required this.onPressed,
   });
 
   @override
   Widget build(BuildContext context) {
-    return FilterChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (_) => onPressed(),
-      backgroundColor: Colors.grey[200],
-      selectedColor: Colors.green.withOpacity(0.3),
-      labelStyle: TextStyle(
-        color: isSelected ? Colors.green : Colors.black87,
-        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: isSelected
+              ? LinearGradient(
+                  colors: [Colors.green.shade400, Colors.green.shade600],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
+          color: isSelected ? null : Colors.grey.shade100,
+          border: Border.all(
+            color: isSelected
+                ? Colors.transparent
+                : Colors.grey.shade300,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: Colors.green.withOpacity(0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 12,
+            color: isSelected ? Colors.white : Colors.grey.shade700,
+          ),
+        ),
       ),
     );
   }

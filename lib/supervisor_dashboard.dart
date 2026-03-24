@@ -5,6 +5,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'supervisor_reports_list.dart';
 import 'supervisor_report_detail.dart';
 import 'notification_settings.dart';
+import 'notification_service.dart';
 
 class SupervisorDashboard extends StatefulWidget {
   final User user;
@@ -16,6 +17,7 @@ class SupervisorDashboard extends StatefulWidget {
 
 class _SupervisorDashboardState extends State<SupervisorDashboard> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
+  final NotificationService _notificationService = NotificationService();
   int _touchedIndex = -1;
   bool _isValidSupervisor = true;
 
@@ -260,16 +262,51 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
         shadowColor: Colors.grey.withOpacity(0.5),
         backgroundColor: Colors.blue,
         actions: [
-          IconButton(
-            tooltip: 'Notification Settings',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => NotificationSettings(user: widget.user),
-                ),
+          StreamBuilder<int>(
+            stream: _notificationService.getNewReportsCount(),
+            builder: (context, snapshot) {
+              final newReportCount = snapshot.data ?? 0;
+              return Stack(
+                children: [
+                  IconButton(
+                    tooltip: 'Notification Settings',
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => NotificationSettings(user: widget.user),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.notifications_active),
+                  ),
+                  if (newReportCount > 0)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade500,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 20,
+                          minHeight: 20,
+                        ),
+                        child: Text(
+                          newReportCount > 99 ? '99+' : newReportCount.toString(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
               );
             },
-            icon: const Icon(Icons.notifications_active),
           ),
           IconButton(
             tooltip: 'Sign out',
