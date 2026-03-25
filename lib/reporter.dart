@@ -108,8 +108,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
       await _notificationService.notifySupervisorsOnNewReport(
         reportId: newReportRef.key ?? 'unknown',
         reportType: _typeController.text.trim(),
-        reporterEmail: widget.user.email ?? 'Unknown Reporter',
-        location: _locationController.text.trim(),
+        reportTitle: _typeController.text.trim(),
+        reporterName: widget.user.displayName ?? widget.user.email ?? 'Unknown Reporter',
+        severity: 'Not Set',
       );
 
       if (mounted) {

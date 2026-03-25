@@ -1,9 +1,9 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'reporter.dart' show ReportIncidentForm;
 import 'reporter_reports_list.dart';
+import 'reporter_report_detail.dart';
 import 'notifications_viewer.dart';
 import 'notification_service.dart';
 import 'reporter_trends_widget.dart';
@@ -33,6 +33,36 @@ class _ReporterDashboardState extends State<ReporterDashboard>
       duration: const Duration(milliseconds: 2000),
       vsync: this,
     )..repeat();
+    
+    // Listen for notification taps to open incident reports
+    _notificationService.notificationTapStream.listen((notificationData) {
+      _handleNotificationTap(notificationData);
+    });
+  }
+
+  Future<void> _handleNotificationTap(Map<String, dynamic> notificationData) async {
+    try {
+      final reportId = notificationData['reportId'];
+      if (reportId != null && reportId.toString().isNotEmpty && mounted) {
+        // Fetch incident details
+        final snapshot = await _dbRef.child('incidents').child(reportId.toString()).get();
+        if (snapshot.exists && mounted) {
+          final reportData = Map<String, dynamic>.from(snapshot.value as Map);
+          
+          // Navigate to report detail
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => ReporterReportDetail(
+                reportId: reportId.toString(),
+                report: reportData,
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error handling notification tap: $e');
+    }
   }
 
   @override
@@ -147,9 +177,30 @@ class _ReporterDashboardState extends State<ReporterDashboard>
           IconButton(
             tooltip: 'Sign out',
             onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              if (context.mounted) {
-                Navigator.of(context).popUntil((route) => route.isFirst);
+              // Show confirmation dialog before logout
+              final shouldLogout = await showDialog<bool>(
+                context: context,
+                builder: (BuildContext dialogContext) => AlertDialog(
+                  title: const Text('Sign Out'),
+                  content: const Text('Are you sure you want to sign out?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Sign Out', style: TextStyle(color: Colors.red)),
+                    ),
+                  ],
+                ),
+              ) ?? false;
+
+              if (shouldLogout && context.mounted) {
+                await FirebaseAuth.instance.signOut();
+                if (context.mounted) {
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                }
               }
             },
             icon: const Icon(Icons.logout),

@@ -35,6 +35,22 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
     _notes = widget.report['notes'] ?? '';
     _notesController.text = _notes;
     _loadLatestNotes();
+    _markIncidentAsRead();
+  }
+
+  Future<void> _markIncidentAsRead() async {
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null) {
+        await _notificationService.markIncidentAsReadBySupervisor(
+          currentUser.uid,
+          widget.reportId,
+        );
+        print('✅ Report marked as read for supervisor');
+      }
+    } catch (e) {
+      print('❌ Error marking report as read: $e');
+    }
   }
 
   Future<void> _loadLatestNotes() async {

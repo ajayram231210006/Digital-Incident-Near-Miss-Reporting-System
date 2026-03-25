@@ -269,16 +269,42 @@ class _LoginDialogState extends State<_LoginDialog> with TickerProviderStateMixi
       // Verify that the selected role matches the user's actual role in database
       final user = userCredential.user;
       if (user != null) {
-        final snapshot = await FirebaseDatabase.instance
-            .ref('users/${user.uid}/role')
+        final userSnapshot = await FirebaseDatabase.instance
+            .ref('users/${user.uid}')
             .get();
 
-        final actualRole = snapshot.value as String?;
-
-        if (actualRole == null) {
+        if (!userSnapshot.exists) {
           // User profile not found
           await FirebaseAuth.instance.signOut();
           await _showMessage('User profile not found. Please sign up first.');
+          if (mounted) setState(() => _loading = false);
+          return;
+        }
+
+        final userData = Map<String, dynamic>.from(userSnapshot.value as Map);
+        final actualRole = userData['role'] as String?;
+        final status = userData['status'] as String? ?? 'pending_approval';
+
+        if (actualRole == null) {
+          await FirebaseAuth.instance.signOut();
+          await _showMessage('Invalid user profile. Please sign up again.');
+          if (mounted) setState(() => _loading = false);
+          return;
+        }
+
+        // Check if account is approved
+        if (status == 'pending_approval') {
+          await FirebaseAuth.instance.signOut();
+          await _showMessage(
+            'Your account is pending admin approval. Please wait for verification.',
+          );
+          if (mounted) setState(() => _loading = false);
+          return;
+        }
+
+        if (status == 'rejected') {
+          await FirebaseAuth.instance.signOut();
+          await _showMessage('Your account has been rejected. Contact administrator for details.');
           if (mounted) setState(() => _loading = false);
           return;
         }
@@ -293,7 +319,7 @@ class _LoginDialogState extends State<_LoginDialog> with TickerProviderStateMixi
           return;
         }
 
-        // Role matches - close dialog and proceed
+        // Account verified and active - close dialog and proceed
         if (mounted) {
           Navigator.of(context).pop();
         }
@@ -411,6 +437,10 @@ class _LoginDialogState extends State<_LoginDialog> with TickerProviderStateMixi
                                 value: 'supervisor',
                                 child: Text('Supervisor'),
                               ),
+                              DropdownMenuItem(
+                                value: 'admin',
+                                child: Text('Admin'),
+                              ),
                             ],
                             onChanged: (v) {
                               if (v != null) _loginRole.value = v;
@@ -480,6 +510,7 @@ class _SignUpDialogState extends State<_SignUpDialog> with TickerProviderStateMi
   final _signLastName = TextEditingController();
   final _signEmail = TextEditingController();
   final _signPassword = TextEditingController();
+  final _adminCode = TextEditingController();
   final ValueNotifier<String> _signRole = ValueNotifier('reporter');
   bool _loading = false;
   bool _obscurePassword = true;
@@ -513,6 +544,7 @@ class _SignUpDialogState extends State<_SignUpDialog> with TickerProviderStateMi
     _signLastName.dispose();
     _signEmail.dispose();
     _signPassword.dispose();
+    _adminCode.dispose();
     _signRole.dispose();
     super.dispose();
   }
@@ -554,6 +586,22 @@ class _SignUpDialogState extends State<_SignUpDialog> with TickerProviderStateMi
       return;
     }
 
+    final role = _signRole.value;
+
+    // Validate admin code if registering as admin
+    if (role == 'admin') {
+      if (_adminCode.text.isEmpty) {
+        await _showMessage('Admin code is required');
+        return;
+      }
+      // Check if admin code is valid (you should replace this with your actual admin code)
+      const validAdminCode = 'ADMIN_SETUP_2024'; // Change this to your secret code
+      if (_adminCode.text.trim() != validAdminCode) {
+        await _showMessage('Invalid admin code');
+        return;
+      }
+    }
+
     setState(() => _loading = true);
     try {
       // Create user account
@@ -566,12 +614,15 @@ class _SignUpDialogState extends State<_SignUpDialog> with TickerProviderStateMi
       if (user != null) {
         final first = _signFirstName.text.trim();
         final last = _signLastName.text.trim();
-        final role = _signRole.value;
 
         // Update display name
         await user.updateDisplayName(
           (first.isNotEmpty || last.isNotEmpty) ? '$first $last' : null,
         );
+
+        // Determine account status based on role
+        // Reporters & Admins are auto-approved, supervisors need admin approval
+        final status = (role == 'supervisor') ? 'pending_approval' : 'active';
 
         // Save user profile to database (non-blocking)
         FirebaseDatabase.instance.ref('users/${user.uid}').set({
@@ -579,6 +630,7 @@ class _SignUpDialogState extends State<_SignUpDialog> with TickerProviderStateMi
           'lastName': last,
           'email': user.email,
           'role': role,
+          'status': status,
           'createdAt': DateTime.now().toIso8601String(),
         }).catchError((e) {
           print('Error saving profile: $e');
@@ -747,11 +799,43 @@ class _SignUpDialogState extends State<_SignUpDialog> with TickerProviderStateMi
                                 value: 'supervisor',
                                 child: Text('Supervisor'),
                               ),
+                              DropdownMenuItem(
+                                value: 'admin',
+                                child: Text('Admin'),
+                              ),
                             ],
                             onChanged: (v) {
                               if (v != null) _signRole.value = v;
                             },
                           );
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      ValueListenableBuilder<String>(
+                        valueListenable: _signRole,
+                        builder: (context, role, _) {
+                          if (role == 'admin') {
+                            return TextField(
+                              controller: _adminCode,
+                              decoration: InputDecoration(
+                                labelText: 'Admin Code',
+                                helperText: 'Enter the admin setup code (contact system owner)',
+                                prefixIcon: const Icon(Icons.vpn_key),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(
+                                    color: Colors.green,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                              obscureText: true,
+                            );
+                          }
+                          return const SizedBox.shrink();
                         },
                       ),
                     ],
