@@ -29,7 +29,8 @@ class _SupervisorReportsListState extends State<SupervisorReportsList> {
     super.initState();
     _isSeverityFilter = widget.filterSeverity != null;
     if (_isSeverityFilter) {
-      _selectedFilter = (widget.filterSeverity?.isEmpty ?? true) ? 'all' : widget.filterSeverity!;
+      // Keep empty string for 'not set' severity filter, only default to 'all' if null
+      _selectedFilter = widget.filterSeverity ?? 'all';
     } else {
       _selectedFilter = (widget.filterStatus?.isEmpty ?? true) ? 'all' : widget.filterStatus!;
     }

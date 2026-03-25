@@ -7,6 +7,7 @@ import 'login.dart';
 import 'splash_screen.dart';
 import 'reporter_dashboard.dart';
 import 'supervisor_dashboard.dart';
+import 'admin_dashboard.dart';
 
 class Wrapper extends StatefulWidget {
   const Wrapper({super.key});
@@ -21,8 +22,8 @@ class _WrapperState extends State<Wrapper> {
   @override
   void initState() {
     super.initState();
-    // Create a future that completes after splash screen duration
-    _splashFuture = Future.delayed(const Duration(seconds: 3), () => true);
+    // Create a future that completes after splash screen duration (reduced to 2 seconds)
+    _splashFuture = Future.delayed(const Duration(milliseconds: 1500), () => true);
   }
 
   @override
@@ -35,7 +36,7 @@ class _WrapperState extends State<Wrapper> {
         if (snapshot.data == false) {
           return SplashScreen(
             onComplete: () {
-              // This will be called but splash screen auto-closes after 3 seconds
+              // This will be called but splash screen auto-closes after 1.5 seconds
             },
           );
         }
@@ -52,13 +53,13 @@ class _WrapperState extends State<Wrapper> {
 
             if (authSnapshot.hasData) {
               final user = authSnapshot.data!;
-              // Fetch role from Realtime Database
+              // Fetch entire user profile from Realtime Database
               return FutureBuilder<DatabaseEvent>(
                 future: FirebaseDatabase.instance
-                    .ref('users/${user.uid}/role')
+                    .ref('users/${user.uid}')
                     .once(),
-                builder: (context, roleSnapshot) {
-                  if (roleSnapshot.connectionState == ConnectionState.waiting) {
+                builder: (context, userSnapshot) {
+                  if (userSnapshot.connectionState == ConnectionState.waiting) {
                     return Scaffold(
                       body: Container(
                         decoration: BoxDecoration(
@@ -96,18 +97,160 @@ class _WrapperState extends State<Wrapper> {
                     );
                   }
 
-                  if (roleSnapshot.hasError) {
-                    // Error fetching role - sign out and return to login
+                  if (userSnapshot.hasError) {
+                    // Error fetching user data - sign out and return to login
                     FirebaseAuth.instance.signOut();
                     return const LoginPage();
                   }
 
-                  final role = roleSnapshot.data?.snapshot.value as String?;
+                  if (!userSnapshot.data!.snapshot.exists) {
+                    // User profile not found - sign out
+                    FirebaseAuth.instance.signOut();
+                    return const LoginPage();
+                  }
 
-                  // If no profile found, sign out
+                  final userData = Map<String, dynamic>.from(
+                    userSnapshot.data!.snapshot.value as Map,
+                  );
+                  final role = userData['role'] as String?;
+                  final status = userData['status'] as String? ?? 'pending_approval';
+
                   if (role == null) {
                     FirebaseAuth.instance.signOut();
                     return const LoginPage();
+                  }
+
+                  // Check account status
+                  if (status == 'pending_approval') {
+                    return Scaffold(
+                      body: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Colors.deepPurple.shade900,
+                              Colors.deepPurple.shade600,
+                              Colors.blue.shade400,
+                            ],
+                          ),
+                        ),
+                        child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(32.0),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.hourglass_empty,
+                                  size: 80,
+                                  color: Colors.orange.shade400,
+                                ),
+                                const SizedBox(height: 30),
+                                Text(
+                                  'Account Pending Approval',
+                                  style: TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Your ${role.toUpperCase()} account is awaiting admin verification and approval.\n\nPlease wait for your account to be activated.',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                                const SizedBox(height: 40),
+                                ElevatedButton.icon(
+                                  onPressed: () async {
+                                    await FirebaseAuth.instance.signOut();
+                                  },
+                                  icon: const Icon(Icons.logout),
+                                  label: const Text('Logout'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.red.shade600,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 32,
+                                      vertical: 14,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+
+                  if (status == 'rejected') {
+                    return Scaffold(
+                      body: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Colors.deepPurple.shade900,
+                              Colors.deepPurple.shade600,
+                              Colors.blue.shade400,
+                            ],
+                          ),
+                        ),
+                        child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(32.0),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.block,
+                                  size: 80,
+                                  color: Colors.red.shade400,
+                                ),
+                                const SizedBox(height: 30),
+                                Text(
+                                  'Account Rejected',
+                                  style: TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Your account registration has been rejected by the administrator.\n\nPlease contact support for more information.',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                                const SizedBox(height: 40),
+                                ElevatedButton.icon(
+                                  onPressed: () async {
+                                    await FirebaseAuth.instance.signOut();
+                                  },
+                                  icon: const Icon(Icons.logout),
+                                  label: const Text('Logout'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.red.shade600,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 32,
+                                      vertical: 14,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
                   }
 
                   // Show appropriate dashboard based on role
@@ -115,6 +258,8 @@ class _WrapperState extends State<Wrapper> {
                     return ReporterDashboard(user: user);
                   } else if (role == 'supervisor') {
                     return SupervisorDashboard(user: user);
+                  } else if (role == 'admin') {
+                    return AdminDashboard(user: user);
                   }
 
                   return const HomePage();

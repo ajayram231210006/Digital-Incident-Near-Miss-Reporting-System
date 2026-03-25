@@ -2,17 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'notification_service.dart';
-import 'reporter_report_detail.dart';
+import 'supervisor_report_detail.dart';
 
-class NotificationsViewer extends StatefulWidget {
+class SupervisorNotificationsViewer extends StatefulWidget {
   final User user;
-  const NotificationsViewer({super.key, required this.user});
+  const SupervisorNotificationsViewer({super.key, required this.user});
 
   @override
-  State<NotificationsViewer> createState() => _NotificationsViewerState();
+  State<SupervisorNotificationsViewer> createState() =>
+      _SupervisorNotificationsViewerState();
 }
 
-class _NotificationsViewerState extends State<NotificationsViewer> {
+class _SupervisorNotificationsViewerState
+    extends State<SupervisorNotificationsViewer> {
   final NotificationService _notificationService = NotificationService();
   bool _showUnreadOnly = false;
 
@@ -23,17 +25,93 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
     _notificationService.autoMarkUnreadNotificationsAsRead(widget.user.uid);
   }
 
+  String _getTimeString(Duration difference) {
+    if (difference.inSeconds < 60) {
+      return 'Just now';
+    } else if (difference.inMinutes < 60) {
+      return '${difference.inMinutes}m ago';
+    } else if (difference.inHours < 24) {
+      return '${difference.inHours}h ago';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays}d ago';
+    } else {
+      return '${(difference.inDays / 7).floor()}w ago';
+    }
+  }
+
+  Color _getSeverityColor(String? severity) {
+    switch (severity?.toLowerCase()) {
+      case 'critical':
+        return Colors.red;
+      case 'high':
+        return Colors.orange;
+      case 'medium':
+        return Colors.yellow;
+      case 'low':
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getSeverityIcon(String? severity) {
+    switch (severity?.toLowerCase()) {
+      case 'critical':
+        return Icons.priority_high;
+      case 'high':
+        return Icons.warning;
+      case 'medium':
+        return Icons.info;
+      case 'low':
+        return Icons.check_circle;
+      default:
+        return Icons.notifications;
+    }
+  }
+
+  Future<void> _openIncident(String reportId) async {
+    try {
+      // Fetch the incident details
+      final dbRef = FirebaseDatabase.instance.ref();
+      final snapshot = await dbRef.child('incidents').child(reportId).get();
+      
+      if (snapshot.exists && mounted) {
+        final reportData = Map<String, dynamic>.from(snapshot.value as Map);
+        
+        // Navigate to report detail
+        if (mounted) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => SupervisorReportDetail(
+                reportId: reportId,
+                report: reportData,
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error opening incident: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error opening incident: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Notifications'),
-        backgroundColor: Colors.green,
+        backgroundColor: Colors.blue,
         elevation: 2,
         actions: [
           // Mark All as Read Button
           StreamBuilder<int>(
-            stream: _notificationService.getUnreadNotificationCount(widget.user.uid),
+            stream:
+                _notificationService.getUnreadNotificationCount(widget.user.uid),
             builder: (context, snapshot) {
               final unreadCount = snapshot.data ?? 0;
               return unreadCount > 0
@@ -41,13 +119,13 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
                       tooltip: 'Mark all as read',
                       icon: const Icon(Icons.done_all),
                       onPressed: () async {
-                        await _notificationService.markAllNotificationsAsRead(
-                          widget.user.uid,
-                        );
+                        await _notificationService
+                            .markAllNotificationsAsRead(widget.user.uid);
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              content: Text('All notifications marked as read'),
+                              content:
+                                  Text('All notifications marked as read'),
                               duration: Duration(seconds: 2),
                             ),
                           );
@@ -97,9 +175,10 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
           }
 
           List<Map<String, dynamic>> notifications = snapshot.data ?? [];
-          
+
           if (_showUnreadOnly) {
-            notifications = notifications.where((n) => !(n['read'] ?? false)).toList();
+            notifications =
+                notifications.where((n) => !(n['read'] ?? false)).toList();
           }
 
           if (notifications.isEmpty) {
@@ -114,19 +193,20 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    _showUnreadOnly 
-                      ? 'No unread notifications' 
-                      : 'No notifications yet',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: Colors.grey.shade600,
-                    ),
+                    _showUnreadOnly
+                        ? 'No unread notifications'
+                        : 'No notifications yet',
+                    style:
+                        Theme.of(context).textTheme.titleMedium?.copyWith(
+                              color: Colors.grey.shade600,
+                            ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Your supervisor will notify you when your reports are updated',
+                    'You will receive notifications when new reports are submitted',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.grey.shade500,
-                    ),
+                          color: Colors.grey.shade500,
+                        ),
                   ),
                 ],
               ),
@@ -143,8 +223,9 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
               final title = notification['title'];
               final body = notification['body'];
               final timestamp = notification['timestamp'];
-              final status = notification['status'];
-              final supervisorName = notification['supervisorName'];
+              final severity = notification['severity'];
+              final reporterName = notification['reporterName'];
+              final reportId = notification['reportId'];
 
               // Parse timestamp
               DateTime notificationTime = DateTime.now();
@@ -156,7 +237,8 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
                 }
               }
 
-              final timeDiff = DateTime.now().difference(notificationTime);
+              final timeDiff =
+                  DateTime.now().difference(notificationTime);
               String timeString = _getTimeString(timeDiff);
 
               return Dismissible(
@@ -180,7 +262,8 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
                   }
                 },
                 child: Card(
-                  margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 0),
+                  margin:
+                      const EdgeInsets.symmetric(vertical: 6, horizontal: 0),
                   elevation: isRead ? 0 : 2,
                   color: isRead ? Colors.grey.shade50 : Colors.blue.shade50,
                   child: ListTile(
@@ -191,11 +274,11 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
                     leading: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: _getStatusColor(status),
+                        color: _getSeverityColor(severity),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Icon(
-                        _getStatusIcon(status),
+                        _getSeverityIcon(severity),
                         color: Colors.white,
                         size: 20,
                       ),
@@ -209,9 +292,9 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
                               child: Text(
                                 title,
                                 style: TextStyle(
-                                  fontWeight: isRead 
-                                    ? FontWeight.normal 
-                                    : FontWeight.bold,
+                                  fontWeight: isRead
+                                      ? FontWeight.normal
+                                      : FontWeight.bold,
                                   fontSize: 15,
                                 ),
                               ),
@@ -257,7 +340,7 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
                               color: Colors.grey.shade500,
                             ),
                           ),
-                          if (supervisorName != null && supervisorName is String)
+                          if (reporterName != null && reporterName is String)
                             Expanded(
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.end,
@@ -269,7 +352,7 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
                                   ),
                                   const SizedBox(width: 4),
                                   Text(
-                                    supervisorName,
+                                    reporterName,
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey.shade500,
@@ -283,21 +366,20 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
                       ),
                     ),
                     onTap: () {
-                          // Mark as read
-                          if (!isRead) {
-                            _notificationService.markNotificationAsRead(
-                              widget.user.uid,
-                              notificationId,
-                            );
-                            setState(() {});
-                          }
-                          
-                          // Open incident if reportId exists
-                          final reportId = notification['reportId'];
-                          if (reportId != null && reportId.toString().isNotEmpty) {
-                            _openIncidentReport(reportId.toString());
-                          }
-                        },
+                      // Mark as read
+                      if (!isRead) {
+                        _notificationService.markNotificationAsRead(
+                          widget.user.uid,
+                          notificationId,
+                        );
+                        setState(() {});
+                      }
+
+                      // Open the incident if reportId exists
+                      if (reportId != null && reportId.isNotEmpty) {
+                        _openIncident(reportId);
+                      }
+                    },
                   ),
                 ),
               );
@@ -306,89 +388,5 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
         },
       ),
     );
-  }
-
-  String _getTimeString(Duration diff) {
-    if (diff.inMinutes < 1) {
-      return 'Just now';
-    } else if (diff.inMinutes < 60) {
-      final mins = diff.inMinutes;
-      return '$mins minute${mins > 1 ? 's' : ''} ago';
-    } else if (diff.inHours < 24) {
-      final hours = diff.inHours;
-      return '$hours hour${hours > 1 ? 's' : ''} ago';
-    } else if (diff.inDays < 7) {
-      final days = diff.inDays;
-      return '$days day${days > 1 ? 's' : ''} ago';
-    } else {
-      return 'A week ago';
-    }
-  }
-
-  Future<void> _openIncidentReport(String reportId) async {
-    try {
-      // Fetch the incident details from Firebase
-      final dbRef = FirebaseDatabase.instance.ref();
-      
-      final snapshot = await dbRef.child('incidents').child(reportId).get();
-      
-      if (snapshot.exists && mounted) {
-        final reportData = Map<String, dynamic>.from(snapshot.value as Map);
-        
-        // Check if it's a reporter report or supervisor report
-        // For reporters, we use ReporterReportDetail
-        if (mounted) {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => ReporterReportDetail(
-                reportId: reportId,
-                report: reportData,
-              ),
-            ),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Report not found')),
-          );
-        }
-      }
-    } catch (e) {
-      print('Error opening incident: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error opening report: $e')),
-        );
-      }
-    }
-  }
-
-  Color _getStatusColor(String? status) {
-    if (status == null) return Colors.blue;
-    switch (status.toLowerCase()) {
-      case 'closed':
-        return Colors.green;
-      case 'active':
-        return Colors.orange;
-      case 'open':
-        return Colors.amber;
-      default:
-        return Colors.blue;
-    }
-  }
-
-  IconData _getStatusIcon(String? status) {
-    if (status == null) return Icons.info;
-    switch (status.toLowerCase()) {
-      case 'closed':
-        return Icons.check_circle;
-      case 'active':
-        return Icons.schedule;
-      case 'open':
-        return Icons.mail;
-      default:
-        return Icons.notifications;
-    }
   }
 }

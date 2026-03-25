@@ -5,12 +5,23 @@ import 'notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
   
-  // Initialize notifications
-  NotificationService().initializeNotifications();
+  // Initialize Firebase and notifications in parallel for faster startup
+  await Future.wait([
+    Firebase.initializeApp(),
+    _initializeNotifications(),
+  ]);
   
   runApp(const MyApp());
+}
+
+// Separate function for notification initialization
+Future<void> _initializeNotifications() async {
+  try {
+    await NotificationService().initializeNotifications();
+  } catch (e) {
+    print('Notification initialization warning: $e');
+  }
 }
 
 class MyApp extends StatelessWidget {

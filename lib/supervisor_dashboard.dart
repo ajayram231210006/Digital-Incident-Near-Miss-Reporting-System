@@ -4,7 +4,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'supervisor_reports_list.dart';
 import 'supervisor_report_detail.dart';
-import 'notification_settings.dart';
+import 'supervisor_notifications_viewer.dart';
 import 'notification_service.dart';
 
 class SupervisorDashboard extends StatefulWidget {
@@ -25,6 +25,36 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
   void initState() {
     super.initState();
     _validateSupervisorRole();
+    
+    // Listen for notification taps to open incident reports
+    _notificationService.notificationTapStream.listen((notificationData) {
+      _handleNotificationTap(notificationData);
+    });
+  }
+
+  Future<void> _handleNotificationTap(Map<String, dynamic> notificationData) async {
+    try {
+      final reportId = notificationData['reportId'];
+      if (reportId != null && reportId.toString().isNotEmpty && mounted) {
+        // Fetch incident details
+        final snapshot = await _dbRef.child('incidents').child(reportId.toString()).get();
+        if (snapshot.exists && mounted) {
+          final reportData = Map<String, dynamic>.from(snapshot.value as Map);
+          
+          // Navigate to report detail
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => SupervisorReportDetail(
+                reportId: reportId.toString(),
+                report: reportData,
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error handling notification tap: $e');
+    }
   }
 
   Future<void> _validateSupervisorRole() async {
@@ -262,24 +292,25 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
         shadowColor: Colors.grey.withOpacity(0.5),
         backgroundColor: Colors.blue,
         actions: [
+          // Notifications Button with Badge
           StreamBuilder<int>(
-            stream: _notificationService.getNewReportsCount(),
+            stream: _notificationService.getUnreadNotificationCount(widget.user.uid),
             builder: (context, snapshot) {
-              final newReportCount = snapshot.data ?? 0;
+              final unreadCount = snapshot.data ?? 0;
               return Stack(
                 children: [
                   IconButton(
-                    tooltip: 'Notification Settings',
+                    tooltip: 'View Notifications',
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (context) => NotificationSettings(user: widget.user),
+                          builder: (context) => SupervisorNotificationsViewer(user: widget.user),
                         ),
                       );
                     },
-                    icon: const Icon(Icons.notifications_active),
+                    icon: const Icon(Icons.notifications),
                   ),
-                  if (newReportCount > 0)
+                  if (unreadCount > 0)
                     Positioned(
                       right: 8,
                       top: 8,
@@ -294,7 +325,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                           minHeight: 20,
                         ),
                         child: Text(
-                          newReportCount > 99 ? '99+' : newReportCount.toString(),
+                          unreadCount > 99 ? '99+' : unreadCount.toString(),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 11,
@@ -311,9 +342,30 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
           IconButton(
             tooltip: 'Sign out',
             onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              if (context.mounted) {
-                Navigator.of(context).popUntil((route) => route.isFirst);
+              // Show confirmation dialog before logout
+              final shouldLogout = await showDialog<bool>(
+                context: context,
+                builder: (BuildContext dialogContext) => AlertDialog(
+                  title: const Text('Sign Out'),
+                  content: const Text('Are you sure you want to sign out?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('Sign Out', style: TextStyle(color: Colors.red)),
+                    ),
+                  ],
+                ),
+              ) ?? false;
+
+              if (shouldLogout && context.mounted) {
+                await FirebaseAuth.instance.signOut();
+                if (context.mounted) {
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                }
               }
             },
             icon: const Icon(Icons.logout),
