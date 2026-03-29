@@ -41,7 +41,7 @@ Your Incident Reporting System now has a **complete Admin Approval Workflow** th
 **Key Code:**
 - Line ~614: `const validAdminCode = 'ADMIN_SETUP_2024';` ⚠️ **Change this!**
 
-### 2. [lib/wrapper.dart](lib/wrapper.dart)
+### 2. [lib/wrapper.dart](lib/wrapper_backup.dart)
 **Changes:**
 - ✅ Fetches full user profile (not just role)
 - ✅ Checks account status
@@ -256,7 +256,7 @@ final status = 'pending_approval';
 **Solution:**
 1. Make sure you're logged in as admin (role = 'admin')
 2. Your account status must be 'active'
-3. Check [lib/wrapper.dart](lib/wrapper.dart) line ~133 for routing
+3. Check [lib/wrapper.dart](lib/wrapper_backup.dart) line ~133 for routing
 
 ---
 
@@ -293,7 +293,7 @@ final status = 'pending_approval';
 - Setup Guide: [ADMIN_APPROVAL_SYSTEM.md](ADMIN_APPROVAL_SYSTEM.md)
 - Admin Dashboard Code: [lib/admin_dashboard.dart](lib/admin_dashboard.dart)
 - Login Logic: [lib/login.dart](lib/login.dart)
-- Routing Logic: [lib/wrapper.dart](lib/wrapper.dart)
+- Routing Logic: [lib/wrapper.dart](lib/wrapper_backup.dart)
 - Security Rules: [FIREBASE_SECURITY_RULES.txt](FIREBASE_SECURITY_RULES.txt)
 
 ---

@@ -1,6 +1,6 @@
 {
-    "name": "project",
-    "short_name": "project",
+    "name": "incitrack",
+    "short_name": "incitrack",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

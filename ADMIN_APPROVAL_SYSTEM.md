@@ -267,5 +267,5 @@ Consider implementing:
 
 Refer to these files for implementation details:
 - [lib/login.dart](lib/login.dart) - Login/Signup logic and admin code
-- [lib/wrapper.dart](lib/wrapper.dart) - Role routing and status checking
+- [lib/wrapper.dart](lib/wrapper_backup.dart) - Role routing and status checking
 - [lib/admin_dashboard.dart](lib/admin_dashboard.dart) - Admin interface
