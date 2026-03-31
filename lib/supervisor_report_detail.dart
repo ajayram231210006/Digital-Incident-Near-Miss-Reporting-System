@@ -46,10 +46,10 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
           currentUser.uid,
           widget.reportId,
         );
-        print('✅ Report marked as read for supervisor');
+        debugPrint('✅ Report marked as read for supervisor');
       }
     } catch (e) {
-      print('❌ Error marking report as read: $e');
+      debugPrint('❌ Error marking report as read: $e');
     }
   }
 
@@ -67,7 +67,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
         }
       }
     } catch (e) {
-      print('Error loading notes: $e');
+      debugPrint('Error loading notes: $e');
     }
   }
 
@@ -87,7 +87,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
       final newNotes = _notesController.text.trim();
       final notesChanged = originalNotes != newNotes;
 
-      print('📝 Saving changes - Status: $originalStatus→$_status, Severity: $originalSeverity→$_severity, Notes changed: $notesChanged');
+      debugPrint('📝 Saving changes - Status: $originalStatus→$_status, Severity: $originalSeverity→$_severity, Notes changed: $notesChanged');
       
       // Update the report
       await _dbRef.child('incidents/${widget.reportId}').update({
@@ -103,12 +103,12 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                              FirebaseAuth.instance.currentUser?.email?.split('@').first ?? 
                              'Supervisor';
 
-      print('📋 Report Details - ReporterUID: $reporterUid, Type: $reportType, Supervisor: $supervisorName');
+      debugPrint('📋 Report Details - ReporterUID: $reporterUid, Type: $reportType, Supervisor: $supervisorName');
 
       // Send notification if status or severity changed
       if (originalStatus != _status || originalSeverity != _severity) {
         if (reporterUid != null && reporterUid.isNotEmpty) {
-          print('🔔 Notifying reporter of status/severity change');
+          debugPrint('🔔 Notifying reporter of status/severity change');
           
           // Create detailed notification message based on changes
           String notificationTitle = '';
@@ -147,16 +147,16 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                 .child(reporterUid)
                 .push()
                 .set(notificationData);
-            print('✅ Reporter notified about status/severity change: $notificationTitle');
+            debugPrint('✅ Reporter notified about status/severity change: $notificationTitle');
           }
         } else {
-          print('⚠️ Reporter UID is null or empty! Cannot notify reporter.');
+          debugPrint('⚠️ Reporter UID is null or empty! Cannot notify reporter.');
         }
       }
 
       // Send notification if notes were added
       if (notesChanged && newNotes.isNotEmpty) {
-        print('📝 Notes changed - notifying reporter and supervisors');
+        debugPrint('📝 Notes changed - notifying reporter and supervisors');
         
         // Get additional report details for better notification formatting
         final reportTitle = widget.report['description'] ?? reportType;
@@ -165,7 +165,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
             ? '${newNotes.substring(0, 80)}...' 
             : newNotes;
         
-        print('📋 Notification details - Title: $reportTitle, Location: $location');
+        debugPrint('📋 Notification details - Title: $reportTitle, Location: $location');
         
         // Notify reporter about notes added
         if (reporterUid != null && reporterUid.isNotEmpty) {
@@ -187,7 +187,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
               .push()
               .set(reporterNoteNotificationData);
           
-          print('✅ Reporter notified about notes: $reportTitle');
+          debugPrint('✅ Reporter notified about notes: $reportTitle');
         }
 
         // Notify supervisors about notes added
@@ -207,7 +207,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
         );
       }
     } catch (e) {
-      print('❌ Error during save: $e');
+      debugPrint('❌ Error during save: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error updating report: $e')),

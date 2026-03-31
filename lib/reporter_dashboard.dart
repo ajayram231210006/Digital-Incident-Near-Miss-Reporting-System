@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'dart:async';
 import 'reporter.dart' show ReportIncidentForm;
 import 'reporter_reports_list.dart';
 import 'reporter_report_detail.dart';
@@ -24,6 +25,9 @@ class _ReporterDashboardState extends State<ReporterDashboard>
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   final NotificationService _notificationService = NotificationService();
   late AnimationController _animationController;
+  StreamSubscription<Map<String, dynamic>>? _notificationTapSubscription;
+  StreamSubscription<int>? _badgeCountSubscription;
+  late final Stream<int> _unreadCountStream;
   bool _isFABOpen = false;
 
   @override
@@ -33,11 +37,28 @@ class _ReporterDashboardState extends State<ReporterDashboard>
       duration: const Duration(milliseconds: 2000),
       vsync: this,
     )..repeat();
-    
-    // Listen for notification taps to open incident reports
-    _notificationService.notificationTapStream.listen((notificationData) {
+    _unreadCountStream = _notificationService
+        .getUnreadNotificationCount(widget.user.uid)
+        .asBroadcastStream();
+
+    _initializeNotifications();
+  }
+
+  Future<void> _initializeNotifications() async {
+    _notificationTapSubscription =
+        _notificationService.notificationTapStream.listen((notificationData) {
       _handleNotificationTap(notificationData);
     });
+
+    _badgeCountSubscription = _unreadCountStream.listen((count) {
+      _notificationService.updateAppBadgeCount(count);
+    });
+
+    final pendingNotification =
+        _notificationService.consumePendingLaunchNotification();
+    if (pendingNotification != null && mounted) {
+      _handleNotificationTap(pendingNotification);
+    }
   }
 
   Future<void> _handleNotificationTap(Map<String, dynamic> notificationData) async {
@@ -61,12 +82,14 @@ class _ReporterDashboardState extends State<ReporterDashboard>
         }
       }
     } catch (e) {
-      print('Error handling notification tap: $e');
+      debugPrint('Error handling notification tap: $e');
     }
   }
 
   @override
   void dispose() {
+    _notificationTapSubscription?.cancel();
+    _badgeCountSubscription?.cancel();
     _animationController.dispose();
     super.dispose();
   }
@@ -129,7 +152,7 @@ class _ReporterDashboardState extends State<ReporterDashboard>
         foregroundColor: Colors.black87,
         actions: [
           StreamBuilder<int>(
-            stream: _notificationService.getUnreadNotificationCount(widget.user.uid),
+            stream: _unreadCountStream,
             builder: (context, snapshot) {
               final unreadCount = snapshot.data ?? 0;
               return Stack(

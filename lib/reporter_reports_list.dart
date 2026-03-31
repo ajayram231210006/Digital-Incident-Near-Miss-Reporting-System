@@ -154,12 +154,15 @@ class _ReporterReportsListState extends State<ReporterReportsList>
                           (value['status'] ?? 'open').toString().toLowerCase();
 
                       bool includeReport = _selectedFilter == 'all';
-                      if (_selectedFilter == 'open' && status == 'open')
+                      if (_selectedFilter == 'open' && status == 'open') {
                         includeReport = true;
-                      if (_selectedFilter == 'active' && status == 'active')
+                      }
+                      if (_selectedFilter == 'active' && status == 'active') {
                         includeReport = true;
-                      if (_selectedFilter == 'closed' && status == 'closed')
+                      }
+                      if (_selectedFilter == 'closed' && status == 'closed') {
                         includeReport = true;
+                      }
 
                       if (includeReport) {
                         reports.add({

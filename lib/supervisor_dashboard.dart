@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'dart:async';
 import 'supervisor_reports_list.dart';
 import 'supervisor_report_detail.dart';
 import 'supervisor_notifications_viewer.dart';
@@ -18,6 +19,9 @@ class SupervisorDashboard extends StatefulWidget {
 class _SupervisorDashboardState extends State<SupervisorDashboard> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   final NotificationService _notificationService = NotificationService();
+  StreamSubscription<Map<String, dynamic>>? _notificationTapSubscription;
+  StreamSubscription<int>? _badgeCountSubscription;
+  late final Stream<int> _unreadCountStream;
   
   // Stats
   int _totalReports = 0;
@@ -34,7 +38,65 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
   @override
   void initState() {
     super.initState();
+    _unreadCountStream = _notificationService
+        .getUnreadNotificationCount(widget.user.uid)
+        .asBroadcastStream();
+    _initializeNotifications();
     _listenToReports();
+  }
+
+  Future<void> _initializeNotifications() async {
+    _notificationTapSubscription =
+        _notificationService.notificationTapStream.listen((notificationData) {
+      _handleNotificationTap(notificationData);
+    });
+
+    _badgeCountSubscription = _unreadCountStream.listen((count) {
+      _notificationService.updateAppBadgeCount(count);
+    });
+
+    final pendingNotification =
+        _notificationService.consumePendingLaunchNotification();
+    if (pendingNotification != null && mounted) {
+      _handleNotificationTap(pendingNotification);
+    }
+  }
+
+  Future<void> _handleNotificationTap(
+    Map<String, dynamic> notificationData,
+  ) async {
+    final reportId = notificationData['reportId']?.toString();
+    if (reportId == null || reportId.isEmpty || !mounted) {
+      return;
+    }
+
+    await _openIncidentReport(reportId);
+  }
+
+  Future<void> _openIncidentReport(String reportId) async {
+    try {
+      final snapshot = await _dbRef.child('incidents').child(reportId).get();
+      if (snapshot.exists && mounted) {
+        final reportData = Map<String, dynamic>.from(snapshot.value as Map);
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => SupervisorReportDetail(
+              reportId: reportId,
+              report: reportData,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error handling supervisor notification tap: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _notificationTapSubscription?.cancel();
+    _badgeCountSubscription?.cancel();
+    super.dispose();
   }
 
   void _listenToReports() {
@@ -66,10 +128,15 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                 open++;
               }
 
-              if (severity == 'critical') critical++;
-              else if (severity == 'high') high++;
-              else if (severity == 'medium') medium++;
-              else if (severity == 'low') low++;
+              if (severity == 'critical') {
+                critical++;
+              } else if (severity == 'high') {
+                high++;
+              } else if (severity == 'medium') {
+                medium++;
+              } else if (severity == 'low') {
+                low++;
+              }
             }
           });
 
@@ -98,7 +165,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
         title: const Text('Supervisor Dashboard'),
         actions: [
           StreamBuilder<int>(
-            stream: _notificationService.getUnreadNotificationCount(widget.user.uid),
+            stream: _unreadCountStream,
             builder: (context, snapshot) {
               final unreadCount = snapshot.data ?? 0;
               return Stack(
@@ -407,8 +474,11 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
             final severity = (report['severity'] ?? '').toString().toLowerCase();
             
             Color statusColor = Colors.orange;
-            if (status == 'closed') statusColor = Colors.green;
-            else if (status == 'active') statusColor = Colors.amber;
+            if (status == 'closed') {
+              statusColor = Colors.green;
+            } else if (status == 'active') {
+              statusColor = Colors.amber;
+            }
 
             return Card(
               margin: const EdgeInsets.only(bottom: 8),
@@ -619,7 +689,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                               if (lineBarSpot.x.toInt() < sortedDates.length) {
                                 final dateStr = sortedDates[lineBarSpot.x.toInt()];
                                 return LineTooltipItem(
-                                  '${dateStr}\n${lineBarSpot.y.toInt()} incidents',
+                                  '$dateStr\n${lineBarSpot.y.toInt()} incidents',
                                   const TextStyle(
                                     color: Colors.black,
                                     fontWeight: FontWeight.bold,

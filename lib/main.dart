@@ -1,7 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'notification_service.dart';
 import 'wrapper.dart';
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  if (kIsWeb) {
+    await Firebase.initializeApp(
+      options: const FirebaseOptions(
+        apiKey: "AIzaSyBqZml7mim57mnAINgNgwfQHtX1yuy3JwM",
+        authDomain: "users-3f3bd.firebaseapp.com",
+        databaseURL: "https://users-3f3bd-default-rtdb.firebaseio.com",
+        projectId: "users-3f3bd",
+        storageBucket: "users-3f3bd.firebasestorage.app",
+        messagingSenderId: "748983652775",
+        appId: "1:748983652775:web:3f3e023e596fd70897a682",
+        measurementId: "G-42B01W22VJ",
+      ),
+    );
+  } else {
+    await Firebase.initializeApp();
+  }
+
+  final hasSystemNotification = message.notification != null;
+  final hasDataTitleOrBody =
+      message.data['title'] != null || message.data['body'] != null;
+
+  if (!hasSystemNotification && hasDataTitleOrBody) {
+    final notificationService = NotificationService();
+    await notificationService.ensureLocalNotificationsInitialized();
+    await notificationService.showNotificationFromRemoteMessage(message);
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +60,7 @@ void main() async {
     } else {
       await Firebase.initializeApp();
     }
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
     isFirebaseReady = true;
   } catch (e) {
     errorMessage = e.toString();

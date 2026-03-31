@@ -119,7 +119,9 @@ class _AdminDashboardState extends State<AdminDashboard> with SingleTickerProvid
           ElevatedButton(
             onPressed: () async {
               await FirebaseAuth.instance.signOut();
-              if (mounted) Navigator.pop(context);
+              if (context.mounted) {
+                Navigator.pop(context);
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red.shade600,
@@ -605,7 +607,7 @@ class _StatCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.2),
+                color: color.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(50),
               ),
               child: Icon(icon, size: 32, color: color),

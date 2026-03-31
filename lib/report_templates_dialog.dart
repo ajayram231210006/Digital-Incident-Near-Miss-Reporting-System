@@ -180,7 +180,7 @@ class _TemplateCardState extends State<_TemplateCard>
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: widget.template.color.withOpacity(0.15),
+                color: widget.template.color.withValues(alpha: 0.15),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
               ),
@@ -205,7 +205,7 @@ class _TemplateCardState extends State<_TemplateCard>
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: widget.template.color.withOpacity(0.15),
+                      color: widget.template.color.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Icon(

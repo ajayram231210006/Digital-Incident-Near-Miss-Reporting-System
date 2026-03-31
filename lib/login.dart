@@ -541,7 +541,7 @@ class _LoginDialogState extends State<_LoginDialog> with TickerProviderStateMixi
                                       valueListenable: _loginRole,
                                       builder: (context, value, _) {
                                         return DropdownButtonFormField<String>(
-                                          value: value,
+                                          initialValue: value,
                                           decoration: InputDecoration(
                                             labelText: 'Role',
                                             prefixIcon: const Icon(Icons.person),
@@ -946,7 +946,7 @@ class _SignUpDialogState extends State<_SignUpDialog> with TickerProviderStateMi
                                       valueListenable: _signRole,
                                       builder: (context, value, _) {
                                         return DropdownButtonFormField<String>(
-                                          value: value,
+                                          initialValue: value,
                                           decoration: InputDecoration(
                                             labelText: 'Role',
                                             prefixIcon: const Icon(Icons.person),
