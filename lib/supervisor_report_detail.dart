@@ -259,7 +259,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                               decoration: BoxDecoration(
-                                color: Colors.blue.withOpacity(0.1),
+                                color: Colors.blue.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
@@ -287,10 +287,10 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
+                          color: Colors.blue.withValues(alpha: 0.1),
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: Colors.blue.withOpacity(0.3),
+                            color: Colors.blue.withValues(alpha: 0.3),
                             width: 2,
                           ),
                         ),
@@ -411,7 +411,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                               borderRadius: BorderRadius.circular(12),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.1),
+                                  color: Colors.black.withValues(alpha: 0.1),
                                   blurRadius: 8,
                                   offset: const Offset(0, 2),
                                 ),
@@ -649,7 +649,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                 children: [
                   Row(
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.note_outlined,
                         color: Colors.tealAccent,
                         size: 20,
@@ -707,7 +707,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   elevation: 4,
-                  shadowColor: Colors.blue.withOpacity(0.3),
+                  shadowColor: Colors.blue.withValues(alpha: 0.3),
                 ),
                 icon: _saving
                     ? const SizedBox(
@@ -749,9 +749,9 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         border: Border.all(
-          color: color.withOpacity(0.2),
+          color: color.withValues(alpha: 0.2),
           width: 1,
         ),
       ),
@@ -814,5 +814,3 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
   }
 
 }
-
-

@@ -238,7 +238,7 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.green.shade400.withOpacity(0.3),
+                        color: Colors.green.shade400.withValues(alpha: 0.3),
                         blurRadius: 20,
                         offset: const Offset(0, 8),
                       ),
@@ -257,7 +257,7 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                               Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
+                                  color: Colors.white.withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: const Icon(
@@ -311,7 +311,7 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                               Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.15),
+                                  color: Colors.white.withValues(alpha: 0.15),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: const Icon(
@@ -621,7 +621,7 @@ class _CircularStatCardState extends State<_CircularStatCard>
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: widget.color.withOpacity(0.15),
+                color: widget.color.withValues(alpha: 0.15),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
               ),
@@ -697,7 +697,7 @@ class _CircularStatCardState extends State<_CircularStatCard>
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: widget.color.withOpacity(0.1),
+                      color: widget.color.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
@@ -790,7 +790,7 @@ class _QuickActionButtonState extends State<_QuickActionButton>
             boxShadow: widget.isPrimary
                 ? [
                     BoxShadow(
-                      color: Colors.green.withOpacity(0.3),
+                      color: Colors.green.withValues(alpha: 0.3),
                       blurRadius: 12,
                       offset: const Offset(0, 4),
                     ),
@@ -819,7 +819,7 @@ class _QuickActionButtonState extends State<_QuickActionButton>
                 Icons.arrow_forward_ios,
                 size: 14,
                 color: widget.isPrimary
-                    ? Colors.white.withOpacity(0.7)
+                    ? Colors.white.withValues(alpha: 0.7)
                     : Colors.grey.shade600,
               ),
             ],
@@ -888,7 +888,7 @@ class _FABActionState extends State<_FABAction>
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
-                color: widget.color.withOpacity(0.2),
+                color: widget.color.withValues(alpha: 0.2),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),
@@ -901,7 +901,7 @@ class _FABActionState extends State<_FABAction>
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: widget.color.withOpacity(0.15),
+                  color: widget.color.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(
