@@ -52,3 +52,17 @@ local-push-sender/service-account.json
 *service-account*.json
 *.secret.json
 *.credentials.json
+
+# Images (optional - if not needed in repo)
+*.png
+*.jpg
+
+# Firebase / secrets
+*.json
+local-push-sender/service-account.json
+
+# Logs
+*.log
+
+# OS files
+Thumbs.db
