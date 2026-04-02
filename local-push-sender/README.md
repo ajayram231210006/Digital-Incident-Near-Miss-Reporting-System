@@ -33,6 +33,9 @@ npm.cmd install
 
 ### 3. Set the service account path
 
+If you save the key as `local-push-sender/service-account.json`, the script now
+detects it automatically and you can skip this step.
+
 For the current PowerShell session:
 
 ```powershell
