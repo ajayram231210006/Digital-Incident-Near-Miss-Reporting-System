@@ -101,7 +101,7 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
         'createdAt': DateTime.now().toIso8601String(),
       };
 
-      final newReportRef = await FirebaseDatabase.instance.ref('incidents').push();
+      final newReportRef = FirebaseDatabase.instance.ref('incidents').push();
       await newReportRef.set(incident);
 
       // Notify all supervisors about the new report
@@ -147,7 +147,7 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
       appBar: AppBar(
         title: const Text('Report an Incident'),
         elevation: 2,
-        shadowColor: Colors.grey.withOpacity(0.5),
+        shadowColor: Colors.grey.withValues(alpha: 0.5),
       ),
       body: SingleChildScrollView(
         padding: EdgeInsets.only(

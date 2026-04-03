@@ -19,8 +19,6 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
   @override
   void initState() {
     super.initState();
-    // Auto-mark all unread notifications as read when viewer opens
-    _notificationService.autoMarkUnreadNotificationsAsRead(widget.user.uid);
   }
 
   @override
@@ -41,11 +39,12 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
                       tooltip: 'Mark all as read',
                       icon: const Icon(Icons.done_all),
                       onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(context);
                         await _notificationService.markAllNotificationsAsRead(
                           widget.user.uid,
                         );
                         if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          messenger.showSnackBar(
                             const SnackBar(
                               content: Text('All notifications marked as read'),
                               duration: Duration(seconds: 2),
@@ -355,7 +354,7 @@ class _NotificationsViewerState extends State<NotificationsViewer> {
         }
       }
     } catch (e) {
-      print('Error opening incident: $e');
+      debugPrint('Error opening incident: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error opening report: $e')),

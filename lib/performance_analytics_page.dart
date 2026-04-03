@@ -276,7 +276,7 @@ class _PerformanceScoreCard extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.purple.withOpacity(0.2),
+            color: Colors.purple.withValues(alpha: 0.2),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -303,7 +303,7 @@ class _PerformanceScoreCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: _getScoreColor().withOpacity(0.2),
+                      color: _getScoreColor().withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -319,7 +319,7 @@ class _PerformanceScoreCard extends StatelessWidget {
                   Text(
                     'Overall Rating',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.white.withOpacity(0.8),
+                          color: Colors.white.withValues(alpha: 0.8),
                         ),
                   ),
                 ],
@@ -375,7 +375,7 @@ class _StatRow extends StatelessWidget {
               label,
               style: TextStyle(
                 fontSize: 11,
-                color: Colors.white.withOpacity(0.7),
+                color: Colors.white.withValues(alpha: 0.7),
               ),
             ),
             Text(
@@ -417,7 +417,7 @@ class _MetricCard extends StatelessWidget {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.1),
+            color: color.withValues(alpha: 0.1),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -431,7 +431,7 @@ class _MetricCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
+              color: color.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, size: 28, color: color),
@@ -491,8 +491,8 @@ class _InsightCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        color: color.withOpacity(0.1),
-        border: Border.all(color: color.withOpacity(0.2)),
+        color: color.withValues(alpha: 0.1),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       padding: const EdgeInsets.all(14),
       child: Row(
@@ -500,7 +500,7 @@ class _InsightCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.2),
+              color: color.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, size: 24, color: color),
@@ -543,5 +543,3 @@ class _InsightCard extends StatelessWidget {
     );
   }
 }
-
-

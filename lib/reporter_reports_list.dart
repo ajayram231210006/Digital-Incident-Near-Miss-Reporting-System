@@ -154,12 +154,15 @@ class _ReporterReportsListState extends State<ReporterReportsList>
                           (value['status'] ?? 'open').toString().toLowerCase();
 
                       bool includeReport = _selectedFilter == 'all';
-                      if (_selectedFilter == 'open' && status == 'open')
+                      if (_selectedFilter == 'open' && status == 'open') {
                         includeReport = true;
-                      if (_selectedFilter == 'active' && status == 'active')
+                      }
+                      if (_selectedFilter == 'active' && status == 'active') {
                         includeReport = true;
-                      if (_selectedFilter == 'closed' && status == 'closed')
+                      }
+                      if (_selectedFilter == 'closed' && status == 'closed') {
                         includeReport = true;
+                      }
 
                       if (includeReport) {
                         reports.add({
@@ -310,7 +313,7 @@ class _ModernReportCardState extends State<_ModernReportCard>
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: widget.statusColor.withOpacity(0.1),
+                  color: widget.statusColor.withValues(alpha: 0.1),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),
@@ -343,7 +346,7 @@ class _ModernReportCardState extends State<_ModernReportCard>
                           Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: widget.statusColor.withOpacity(0.15),
+                              color: widget.statusColor.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Icon(
@@ -387,10 +390,10 @@ class _ModernReportCardState extends State<_ModernReportCard>
                               vertical: 6,
                             ),
                             decoration: BoxDecoration(
-                              color: widget.statusColor.withOpacity(0.15),
+                              color: widget.statusColor.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
-                                color: widget.statusColor.withOpacity(0.3),
+                                color: widget.statusColor.withValues(alpha: 0.3),
                               ),
                             ),
                             child: Row(
@@ -532,7 +535,7 @@ class _ModernFilterChip extends StatelessWidget {
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: Colors.green.withOpacity(0.2),
+                    color: Colors.green.withValues(alpha: 0.2),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),

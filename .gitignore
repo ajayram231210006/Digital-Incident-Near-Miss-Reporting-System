@@ -43,3 +43,26 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Dependencies
+**/node_modules/
+
+# Secrets and local credentials
+local-push-sender/service-account.json
+*service-account*.json
+*.secret.json
+*.credentials.json
+
+# Images (optional - if not needed in repo)
+*.png
+*.jpg
+
+# Firebase / secrets
+*.json
+local-push-sender/service-account.json
+
+# Logs
+*.log
+
+# OS files
+Thumbs.db

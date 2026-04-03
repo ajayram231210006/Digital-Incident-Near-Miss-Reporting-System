@@ -29,7 +29,7 @@ class ReporterReportDetail extends StatelessWidget {
             gradient: LinearGradient(
               colors: [
                 statusColor,
-                statusColor.withOpacity(0.7),
+                statusColor.withValues(alpha: 0.7),
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -271,7 +271,7 @@ class ReporterReportDetail extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.2),
+                        color: statusColor.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: statusColor,
