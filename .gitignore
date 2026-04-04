@@ -11,6 +11,7 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+Thumbs.db
 
 # IntelliJ related
 *.iml
@@ -18,9 +19,7 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
+# VS Code (optional - uncomment if needed)
 #.vscode/
 
 # Flutter/Dart/Pub related
@@ -33,18 +32,29 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Android build outputs
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Node dependencies (if any backend used)
+**/node_modules/
+
+# Firebase / secrets / credentials (IMPORTANT)
+database.rules.json
+*.json
+*service-account*.json
+*.secret.json
+*.credentials.json
+local-push-sender/
+local-push-sender/service-account.json
+
+# Images (ignore only if not needed in repo)
+*.png
+*.jpg
+
 # Symbolication related
 app.*.symbols
 
 # Obfuscation related
 app.*.map.json
-
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
-
-
-database.rules.json
-local-push-sender/
-*.png

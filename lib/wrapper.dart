@@ -4,6 +4,7 @@ import 'package:firebase_database/firebase_database.dart';
 
 import 'homepage.dart';
 import 'login.dart';
+import 'notification_service.dart';
 import 'splash_screen.dart';
 import 'reporter_dashboard.dart';
 import 'supervisor_dashboard.dart';
@@ -18,6 +19,8 @@ class Wrapper extends StatefulWidget {
 
 class _WrapperState extends State<Wrapper> {
   late Future<bool> _splashFuture;
+  final NotificationService _notificationService = NotificationService();
+  String? _notificationSetupForUid;
 
   @override
   void initState() {
@@ -54,7 +57,15 @@ class _WrapperState extends State<Wrapper> {
 
             // 🔹 If user not logged in
             if (user == null) {
+              _notificationSetupForUid = null;
               return const LoginPage();
+            }
+
+            if (_notificationSetupForUid != user.uid) {
+              _notificationSetupForUid = user.uid;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _notificationService.initializeNotifications();
+              });
             }
 
             // 🔹 Fetch user data from Realtime DB

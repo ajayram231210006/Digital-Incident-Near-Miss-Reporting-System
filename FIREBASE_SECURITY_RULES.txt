@@ -1,60 +1,141 @@
-// Firebase Realtime Database Security Rules
-// These rules enforce data security and access control
-
-// Replace your current Firebase rules with this content
-// Go to Firebase Console → Your Project → Realtime Database → Rules
-
 {
   "rules": {
+    ".read": false,
+    ".write": false,
+
     "users": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
       "$uid": {
-        // Only the user themselves or an admin can read their data
-        ".read": "auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin'",
-        
-        // Only the user can write to their own data during signup
-        // But after account creation, only admins can modify status/role
-        ".write": "!data.exists() || auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin'",
-        
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+
         "role": {
-          // Admins can modify role
-          ".write": "root.child('users').child(auth.uid).child('role').val() === 'admin'"
+          ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+          ".validate": "newData.isString() && (newData.val() === 'reporter' || newData.val() === 'supervisor' || newData.val() === 'admin')"
         },
-        
+
         "status": {
-          // Admins can modify status (for approvals/rejections)
-          ".write": "root.child('users').child(auth.uid).child('role').val() === 'admin'"
+          ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+          ".validate": "newData.isString() && (newData.val() === 'pending' || newData.val() === 'pending_approval' || newData.val() === 'active' || newData.val() === 'inactive' || newData.val() === 'rejected')"
+        },
+
+        "email": {
+          ".validate": "newData.isString()"
+        },
+
+        "firstName": {
+          ".validate": "newData.isString()"
+        },
+
+        "lastName": {
+          ".validate": "newData.isString()"
+        },
+
+        "createdAt": {
+          ".validate": "newData.isString()"
+        },
+
+        "fcmToken": {
+          ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+          ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+          ".validate": "newData.val() === null || newData.isString()"
         }
       }
     },
-    
-    "reports": {
-      "$reportId": {
-        ".read": "root.child('users').child(auth.uid).exists()",
-        ".write": "root.child('users').child(auth.uid).exists()"
+
+    "incidents": {
+      ".read": "auth != null",
+      "$incidentId": {
+        ".read": "auth != null",
+        ".write": "auth != null && ((!data.exists() && newData.child('reporterUid').val() === auth.uid) || root.child('users').child(auth.uid).child('role').val() === 'supervisor' || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+
+        "createdAt": {
+          ".validate": "newData.isString()"
+        },
+
+        "date": {
+          ".validate": "newData.isString()"
+        },
+
+        "description": {
+          ".validate": "newData.isString()"
+        },
+
+        "imageUrl": {
+          ".validate": "newData.val() === null || newData.isString()"
+        },
+
+        "lastModified": {
+          ".validate": "newData.val() === null || newData.isString()"
+        },
+
+        "location": {
+          ".validate": "newData.isString()"
+        },
+
+        "notes": {
+          ".validate": "newData.val() === null || newData.isString()"
+        },
+
+        "reporterEmail": {
+          ".validate": "newData.isString()"
+        },
+
+        "reporterUid": {
+          ".validate": "newData.isString() && (!data.exists() ? newData.val() === auth.uid : newData.val() === data.val())"
+        },
+
+        "severity": {
+          ".validate": "newData.val() === null || (newData.isString() && (newData.val() === '' || newData.val() === 'low' || newData.val() === 'medium' || newData.val() === 'high' || newData.val() === 'critical'))"
+        },
+
+        "status": {
+          ".validate": "newData.isString() && (newData.val() === 'open' || newData.val() === 'active' || newData.val() === 'closed')"
+        },
+
+        "type": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 100"
+        }
+      }
+    },
+
+    "incidentReadStatus": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        "$incidentId": {
+          ".validate": "newData.hasChildren(['read', 'readAt']) && newData.child('read').isBoolean() && newData.child('readAt').isString()"
+        }
+      }
+    },
+
+    "notificationPreferences": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+      }
+    },
+
+    "notificationTokens": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        "token": {
+          ".validate": "newData.val() === null || newData.isString()"
+        },
+        "updatedAt": {
+          ".validate": "newData.val() === null || newData.isString()"
+        }
+      }
+    },
+
+    "userNotifications": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        "$notificationId": {
+          ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'supervisor' || (!data.exists() && root.child('users').child(auth.uid).exists()))"
+        }
       }
     }
   }
 }
-
-/*
-RULES EXPLANATION:
-
-1. users/$uid/.read
-   - Users can only read their own profile
-   - Admins can read any user's profile
-
-2. users/$uid/.write
-   - During signup (no data exists): new users can create their own profile
-   - After signup: users can only modify their own data (except role/status)
-   - Admins: can modify any field including role and status
-
-3. users/$uid/role
-   - Only admins can change this field
-
-4. users/$uid/status
-   - Only admins can change this field (for approvals)
-
-5. reports
-   - Any authenticated user can read and write reports
-   - (You may want to tighten this based on your needs)
-*/

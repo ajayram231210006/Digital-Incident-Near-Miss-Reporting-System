@@ -11,7 +11,8 @@ class AdminDashboard extends StatefulWidget {
   State<AdminDashboard> createState() => _AdminDashboardState();
 }
 
-class _AdminDashboardState extends State<AdminDashboard> with SingleTickerProviderStateMixin {
+class _AdminDashboardState extends State<AdminDashboard>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   late DatabaseReference _usersRef;
 
@@ -42,10 +43,7 @@ class _AdminDashboardState extends State<AdminDashboard> with SingleTickerProvid
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -65,10 +63,7 @@ class _AdminDashboardState extends State<AdminDashboard> with SingleTickerProvid
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -88,10 +83,7 @@ class _AdminDashboardState extends State<AdminDashboard> with SingleTickerProvid
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -119,7 +111,9 @@ class _AdminDashboardState extends State<AdminDashboard> with SingleTickerProvid
           ElevatedButton(
             onPressed: () async {
               await FirebaseAuth.instance.signOut();
-              if (mounted) Navigator.pop(context);
+              if (context.mounted) {
+                Navigator.pop(context);
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red.shade600,
@@ -167,7 +161,11 @@ class _AdminDashboardState extends State<AdminDashboard> with SingleTickerProvid
       body: TabBarView(
         controller: _tabController,
         children: [
-          _PendingUsersTab(usersRef: _usersRef, onApprove: _approveUser, onReject: _rejectUser),
+          _PendingUsersTab(
+            usersRef: _usersRef,
+            onApprove: _approveUser,
+            onReject: _rejectUser,
+          ),
           _ReportersTab(usersRef: _usersRef, onDeactivate: _deactivateUser),
           _SupervisorsTab(usersRef: _usersRef, onDeactivate: _deactivateUser),
           _StatisticsTab(usersRef: _usersRef),
@@ -193,6 +191,13 @@ class _PendingUsersTab extends StatelessWidget {
     return StreamBuilder<DatabaseEvent>(
       stream: usersRef.onValue,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _AdminDataError(
+            message:
+                'Unable to load users. Check Realtime Database rules for admin read access on /users.',
+          );
+        }
+
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -202,7 +207,9 @@ class _PendingUsersTab extends StatelessWidget {
         }
 
         final users = <MapEntry<String, Map<String, dynamic>>>[];
-        final data = Map<String, dynamic>.from(snapshot.data!.snapshot.value as Map);
+        final data = Map<String, dynamic>.from(
+          snapshot.data!.snapshot.value as Map,
+        );
 
         data.forEach((uid, userData) {
           final user = Map<String, dynamic>.from(userData as Map);
@@ -326,7 +333,9 @@ class _PendingUsersTab extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Reject User'),
-        content: const Text('Are you sure you want to reject this user request?'),
+        content: const Text(
+          'Are you sure you want to reject this user request?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -350,16 +359,20 @@ class _ReportersTab extends StatelessWidget {
   final DatabaseReference usersRef;
   final Function(String) onDeactivate;
 
-  const _ReportersTab({
-    required this.usersRef,
-    required this.onDeactivate,
-  });
+  const _ReportersTab({required this.usersRef, required this.onDeactivate});
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DatabaseEvent>(
       stream: usersRef.onValue,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _AdminDataError(
+            message:
+                'Unable to load reporters. Check Realtime Database rules for admin read access on /users.',
+          );
+        }
+
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -369,7 +382,9 @@ class _ReportersTab extends StatelessWidget {
         }
 
         final reporters = <MapEntry<String, Map<String, dynamic>>>[];
-        final data = Map<String, dynamic>.from(snapshot.data!.snapshot.value as Map);
+        final data = Map<String, dynamic>.from(
+          snapshot.data!.snapshot.value as Map,
+        );
 
         data.forEach((uid, userData) {
           final user = Map<String, dynamic>.from(userData as Map);
@@ -422,16 +437,20 @@ class _SupervisorsTab extends StatelessWidget {
   final DatabaseReference usersRef;
   final Function(String) onDeactivate;
 
-  const _SupervisorsTab({
-    required this.usersRef,
-    required this.onDeactivate,
-  });
+  const _SupervisorsTab({required this.usersRef, required this.onDeactivate});
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DatabaseEvent>(
       stream: usersRef.onValue,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _AdminDataError(
+            message:
+                'Unable to load supervisors. Check Realtime Database rules for admin read access on /users.',
+          );
+        }
+
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -441,7 +460,9 @@ class _SupervisorsTab extends StatelessWidget {
         }
 
         final supervisors = <MapEntry<String, Map<String, dynamic>>>[];
-        final data = Map<String, dynamic>.from(snapshot.data!.snapshot.value as Map);
+        final data = Map<String, dynamic>.from(
+          snapshot.data!.snapshot.value as Map,
+        );
 
         data.forEach((uid, userData) {
           final user = Map<String, dynamic>.from(userData as Map);
@@ -500,6 +521,13 @@ class _StatisticsTab extends StatelessWidget {
     return StreamBuilder<DatabaseEvent>(
       stream: usersRef.onValue,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _AdminDataError(
+            message:
+                'Unable to load statistics. Check Realtime Database rules for admin read access on /users.',
+          );
+        }
+
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -508,7 +536,9 @@ class _StatisticsTab extends StatelessWidget {
           return const Center(child: Text('No data available'));
         }
 
-        final data = Map<String, dynamic>.from(snapshot.data!.snapshot.value as Map);
+        final data = Map<String, dynamic>.from(
+          snapshot.data!.snapshot.value as Map,
+        );
         int totalUsers = 0;
         int activeReporters = 0;
         int activeSupervisors = 0;
@@ -605,7 +635,7 @@ class _StatCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.2),
+                color: color.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(50),
               ),
               child: Icon(icon, size: 32, color: color),
@@ -614,10 +644,7 @@ class _StatCard extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(color: Colors.grey),
-                ),
+                Text(title, style: const TextStyle(color: Colors.grey)),
                 const SizedBox(height: 8),
                 Text(
                   count.toString(),
@@ -627,6 +654,33 @@ class _StatCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AdminDataError extends StatelessWidget {
+  final String message;
+
+  const _AdminDataError({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.lock_outline, size: 64, color: Colors.red.shade400),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16),
             ),
           ],
         ),

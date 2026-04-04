@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'dart:async';
 import 'reporter.dart' show ReportIncidentForm;
 import 'reporter_reports_list.dart';
 import 'reporter_report_detail.dart';
@@ -24,6 +25,9 @@ class _ReporterDashboardState extends State<ReporterDashboard>
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   final NotificationService _notificationService = NotificationService();
   late AnimationController _animationController;
+  StreamSubscription<Map<String, dynamic>>? _notificationTapSubscription;
+  StreamSubscription<int>? _badgeCountSubscription;
+  late final Stream<int> _unreadCountStream;
   bool _isFABOpen = false;
 
   @override
@@ -33,11 +37,28 @@ class _ReporterDashboardState extends State<ReporterDashboard>
       duration: const Duration(milliseconds: 2000),
       vsync: this,
     )..repeat();
-    
-    // Listen for notification taps to open incident reports
-    _notificationService.notificationTapStream.listen((notificationData) {
+    _unreadCountStream = _notificationService
+        .getUnreadNotificationCount(widget.user.uid)
+        .asBroadcastStream();
+
+    _initializeNotifications();
+  }
+
+  Future<void> _initializeNotifications() async {
+    _notificationTapSubscription =
+        _notificationService.notificationTapStream.listen((notificationData) {
       _handleNotificationTap(notificationData);
     });
+
+    _badgeCountSubscription = _unreadCountStream.listen((count) {
+      _notificationService.updateAppBadgeCount(count);
+    });
+
+    final pendingNotification =
+        _notificationService.consumePendingLaunchNotification();
+    if (pendingNotification != null && mounted) {
+      _handleNotificationTap(pendingNotification);
+    }
   }
 
   Future<void> _handleNotificationTap(Map<String, dynamic> notificationData) async {
@@ -61,12 +82,14 @@ class _ReporterDashboardState extends State<ReporterDashboard>
         }
       }
     } catch (e) {
-      print('Error handling notification tap: $e');
+      debugPrint('Error handling notification tap: $e');
     }
   }
 
   @override
   void dispose() {
+    _notificationTapSubscription?.cancel();
+    _badgeCountSubscription?.cancel();
     _animationController.dispose();
     super.dispose();
   }
@@ -129,7 +152,7 @@ class _ReporterDashboardState extends State<ReporterDashboard>
         foregroundColor: Colors.black87,
         actions: [
           StreamBuilder<int>(
-            stream: _notificationService.getUnreadNotificationCount(widget.user.uid),
+            stream: _unreadCountStream,
             builder: (context, snapshot) {
               final unreadCount = snapshot.data ?? 0;
               return Stack(
@@ -238,7 +261,7 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.green.shade400.withOpacity(0.3),
+                        color: Colors.green.shade400.withValues(alpha: 0.3),
                         blurRadius: 20,
                         offset: const Offset(0, 8),
                       ),
@@ -257,7 +280,7 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                               Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
+                                  color: Colors.white.withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: const Icon(
@@ -311,7 +334,7 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                               Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.15),
+                                  color: Colors.white.withValues(alpha: 0.15),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: const Icon(
@@ -621,7 +644,7 @@ class _CircularStatCardState extends State<_CircularStatCard>
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: widget.color.withOpacity(0.15),
+                color: widget.color.withValues(alpha: 0.15),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
               ),
@@ -697,7 +720,7 @@ class _CircularStatCardState extends State<_CircularStatCard>
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: widget.color.withOpacity(0.1),
+                      color: widget.color.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
@@ -790,7 +813,7 @@ class _QuickActionButtonState extends State<_QuickActionButton>
             boxShadow: widget.isPrimary
                 ? [
                     BoxShadow(
-                      color: Colors.green.withOpacity(0.3),
+                      color: Colors.green.withValues(alpha: 0.3),
                       blurRadius: 12,
                       offset: const Offset(0, 4),
                     ),
@@ -819,7 +842,7 @@ class _QuickActionButtonState extends State<_QuickActionButton>
                 Icons.arrow_forward_ios,
                 size: 14,
                 color: widget.isPrimary
-                    ? Colors.white.withOpacity(0.7)
+                    ? Colors.white.withValues(alpha: 0.7)
                     : Colors.grey.shade600,
               ),
             ],
@@ -888,7 +911,7 @@ class _FABActionState extends State<_FABAction>
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
-                color: widget.color.withOpacity(0.2),
+                color: widget.color.withValues(alpha: 0.2),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),
@@ -901,7 +924,7 @@ class _FABActionState extends State<_FABAction>
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: widget.color.withOpacity(0.15),
+                  color: widget.color.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(

@@ -2,7 +2,9 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_app_badger/flutter_app_badger.dart';
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -22,12 +24,68 @@ class NotificationService {
   
   // Stream controllers for notification events
   final _notificationTapStream = StreamController<Map<String, dynamic>>.broadcast();
+  StreamSubscription<RemoteMessage>? _foregroundMessageSubscription;
+  StreamSubscription<RemoteMessage>? _messageOpenedAppSubscription;
+  StreamSubscription<String>? _tokenRefreshSubscription;
+  bool _isInitialized = false;
+  bool _isLocalNotificationsInitialized = false;
+  String? _initializedUserId;
+  Map<String, dynamic>? _pendingLaunchNotification;
+  bool? _isAppBadgeSupported;
+  final Map<String, int> _lastLoggedUnreadCounts = {};
   
   Stream<Map<String, dynamic>> get notificationTapStream => _notificationTapStream.stream;
+
+  Future<void> ensureLocalNotificationsInitialized() async {
+    await _initializeLocalNotifications();
+  }
+
+  Future<bool> _supportsAppBadge() async {
+    if (_isAppBadgeSupported != null) {
+      return _isAppBadgeSupported!;
+    }
+
+    try {
+      _isAppBadgeSupported = await FlutterAppBadger.isAppBadgeSupported();
+    } catch (e) {
+      debugPrint('⚠️ Error checking app badge support: $e');
+      _isAppBadgeSupported = false;
+    }
+
+    return _isAppBadgeSupported!;
+  }
+
+  Future<void> updateAppBadgeCount(int unreadCount) async {
+    final isSupported = await _supportsAppBadge();
+    if (!isSupported) {
+      return;
+    }
+
+    try {
+      if (unreadCount > 0) {
+        FlutterAppBadger.updateBadgeCount(unreadCount);
+      } else {
+        FlutterAppBadger.removeBadge();
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error updating app badge count: $e');
+    }
+  }
 
   /// Initialize Firebase Cloud Messaging and Local Notifications
   Future<void> initializeNotifications() async {
     try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        debugPrint('⚠️ Notification initialization skipped: no logged-in user');
+        return;
+      }
+
+      if (_isInitialized && _initializedUserId == currentUser.uid) {
+        await _saveFCMToken();
+        return;
+      }
+
       // Initialize local notifications
       await _initializeLocalNotifications();
 
@@ -41,49 +99,56 @@ class NotificationService {
         sound: true,
       );
 
-      print('📋 User notification permission status: ${settings.authorizationStatus}');
+      debugPrint(
+        '📋 User notification permission status: ${settings.authorizationStatus}',
+      );
 
-      if (settings.authorizationStatus.index >= 1) {
-        // Permission granted (authorized or provisional)
-        print('✅ User granted notification permission');
+      final authorizationStatus = settings.authorizationStatus;
+      final isPermissionGranted =
+          authorizationStatus == AuthorizationStatus.authorized ||
+          authorizationStatus == AuthorizationStatus.provisional;
 
-        // Get FCM token and store it
+      if (isPermissionGranted) {
+        debugPrint('✅ User granted notification permission');
+
         await _saveFCMToken();
 
-        // Handle foreground messages
-        FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-          _handleForegroundMessage(message);
-        });
+        await _foregroundMessageSubscription?.cancel();
+        _foregroundMessageSubscription =
+            FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
 
-        // Handle notification taps (when app is in background/terminated)
-        FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-          _handleNotificationTap(message);
-        });
+        await _messageOpenedAppSubscription?.cancel();
+        _messageOpenedAppSubscription =
+            FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
 
-        // Handle background messages (when app is terminated or in background)
-        FirebaseMessaging.onBackgroundMessage(_handleBackgroundMessage);
-
-        // Handle token refresh
-        _messaging.onTokenRefresh.listen((_) {
+        await _tokenRefreshSubscription?.cancel();
+        _tokenRefreshSubscription = _messaging.onTokenRefresh.listen((_) {
           _saveFCMToken();
         });
+
+        final initialMessage = await _messaging.getInitialMessage();
+        if (initialMessage != null) {
+          _handleNotificationTap(initialMessage, storeForLater: true);
+        }
+
+        _isInitialized = true;
+        _initializedUserId = currentUser.uid;
       } else {
-        print('❌ User declined or has not yet granted notification permission');
+        debugPrint(
+          '❌ User declined or has not yet granted notification permission',
+        );
       }
     } catch (e) {
-      print('❌ Error initializing notifications: $e');
+      debugPrint('❌ Error initializing notifications: $e');
     }
-  }
-
-  /// Static background message handler for Firebase Messaging
-  static Future<void> _handleBackgroundMessage(RemoteMessage message) async {
-    print('📬 Received background message: ${message.notification?.title}');
-    // Background messages are handled by Firebase by default
-    // This callback is triggered when app is terminated or in background
   }
 
   /// Initialize local notifications plugin
   Future<void> _initializeLocalNotifications() async {
+    if (_isLocalNotificationsInitialized) {
+      return;
+    }
+
     try {
       const AndroidInitializationSettings androidSettings =
           AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -103,7 +168,11 @@ class NotificationService {
       await _localNotifications.initialize(
         initSettings,
         onDidReceiveNotificationResponse: (NotificationResponse response) {
-          print('📲 Local notification tapped: ${response.payload}');
+          debugPrint('📲 Local notification tapped: ${response.payload}');
+          final payloadData = _parsePayload(response.payload);
+          if (payloadData.isNotEmpty) {
+            _notificationTapStream.add(payloadData);
+          }
         },
       );
 
@@ -115,9 +184,9 @@ class NotificationService {
         'High Importance Notifications',
         description: 'This channel is used for important notifications.',
         importance: Importance.max,
+        showBadge: true,
         enableVibration: true,
         enableLights: true,
-        sound: RawResourceAndroidNotificationSound('notification_sound'),
         playSound: true,
       );
 
@@ -128,6 +197,7 @@ class NotificationService {
         'Default Notifications',
         description: 'Default notification channel.',
         importance: Importance.high,
+        showBadge: true,
         enableVibration: true,
         enableLights: true,
         playSound: true,
@@ -141,12 +211,13 @@ class NotificationService {
       if (androidPlugin != null) {
         await androidPlugin.createNotificationChannel(highPriorityChannel);
         await androidPlugin.createNotificationChannel(defaultChannel);
-        print('✅ Notification channels created for Android');
+        debugPrint('✅ Notification channels created for Android');
       }
 
-      print('✅ Local notifications initialized');
+      _isLocalNotificationsInitialized = true;
+      debugPrint('✅ Local notifications initialized');
     } catch (e) {
-      print('❌ Error initializing local notifications: $e');
+      debugPrint('❌ Error initializing local notifications: $e');
     }
   }
 
@@ -171,40 +242,49 @@ class NotificationService {
                 'token': token,
                 'updatedAt': DateTime.now().toIso8601String(),
               });
-          print('✅ FCM token saved successfully');
+          debugPrint('✅ FCM token saved successfully');
         }
       }
     } catch (e) {
-      print('❌ Error saving FCM token: $e');
+      debugPrint('❌ Error saving FCM token: $e');
     }
   }
 
   /// Handle foreground messages
   void _handleForegroundMessage(RemoteMessage message) {
-    print('📬 Received foreground message: ${message.notification?.title}');
-    
-    // Show local notification when message is received in foreground
-    final title = message.notification?.title ?? 'Notification';
-    final body = message.notification?.body ?? '';
-    
-    // Extract incident data if available
-    Map<String, dynamic> notificationData = {
+    debugPrint('📬 Received foreground message: ${message.notification?.title}');
+
+    showNotificationFromRemoteMessage(message);
+  }
+
+  Future<void> showNotificationFromRemoteMessage(RemoteMessage message) async {
+    final title = message.notification?.title ??
+        message.data['title']?.toString() ??
+        'Notification';
+    final body =
+        message.notification?.body ?? message.data['body']?.toString() ?? '';
+
+    final notificationData = <String, dynamic>{
       'title': title,
       'body': body,
       'reportId': message.data['reportId'] ?? '',
       'status': message.data['status'] ?? '',
       'supervisorName': message.data['supervisorName'] ?? '',
+      'severity': message.data['severity'] ?? '',
+      'unreadCount': message.data['unreadCount'] ?? '',
       'timestamp': DateTime.now().toIso8601String(),
     };
-    
-    // Emit to stream for in-app handling
-    _notificationTapStream.add(notificationData);
-    
-    _showLocalNotification(
+
+    final unreadCount = int.tryParse(
+      message.data['unreadCount']?.toString() ?? '',
+    );
+
+    await _showLocalNotification(
       title: title,
       body: body,
-      payload: message.data.toString(),
+      payload: jsonEncode(notificationData),
       notificationData: notificationData,
+      unreadCount: unreadCount,
     );
   }
 
@@ -214,6 +294,7 @@ class NotificationService {
     required String body,
     String? payload,
     Map<String, dynamic>? notificationData,
+    int? unreadCount,
   }) async {
     try {
       // Use system default sound and create visual notification with full visibility  
@@ -222,6 +303,7 @@ class NotificationService {
         'high_importance_channel',
         'High Importance Notifications',
         channelDescription: 'This channel is used for important notifications.',
+        channelShowBadge: true,
         importance: Importance.max,
         priority: Priority.high,
         enableVibration: true,
@@ -229,19 +311,19 @@ class NotificationService {
         vibrationPattern: Int64List.fromList([0, 500, 250, 500]),
         ledColor: const Color.fromARGB(255, 255, 0, 0),
         playSound: true,
-        sound: const RawResourceAndroidNotificationSound('notification_sound'),
         styleInformation: BigTextStyleInformation(body),
         autoCancel: true,
-        tag: notificationData?['reportId'] ?? 'notification',
         showWhen: true,
         visibility: NotificationVisibility.public,
+        number: unreadCount,
+        onlyAlertOnce: false,
       );
 
-      const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
+      final DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
         presentSound: true,
-        sound: 'notification_sound.caf',
+        badgeNumber: unreadCount,
       );
 
       final NotificationDetails platformChannelSpecifics = NotificationDetails(
@@ -249,25 +331,32 @@ class NotificationService {
         iOS: iosDetails,
       );
 
-      // Use a deterministic ID based on reportId to avoid duplicate notifications
-      int notificationId = notificationData?['reportId']?.hashCode ?? DateTime.now().millisecond;
+      // Use a unique ID so Android keeps notifications separate in the tray.
+      final notificationId =
+          DateTime.now().microsecondsSinceEpoch.remainder(2147483647);
       
       await _localNotifications.show(
         notificationId.abs(),
         title,
         body,
         platformChannelSpecifics,
-        payload: payload ?? notificationData.toString(),
+        payload: payload ?? jsonEncode(notificationData ?? <String, dynamic>{}),
       );
-      print('🔔 Local notification displayed: $title');
+      if (unreadCount != null) {
+        await updateAppBadgeCount(unreadCount);
+      }
+      debugPrint('🔔 Local notification displayed: $title');
     } catch (e) {
-      print('❌ Error showing local notification: $e');
+      debugPrint('❌ Error showing local notification: $e');
     }
   }
 
   /// Handle notification tap
-  void _handleNotificationTap(RemoteMessage message) {
-    print('🔗 Notification tapped: ${message.messageId}');
+  void _handleNotificationTap(
+    RemoteMessage message, {
+    bool storeForLater = false,
+  }) {
+    debugPrint('🔗 Notification tapped: ${message.messageId}');
     
     // Emit notification tap event with data for navigation
     Map<String, dynamic> tapData = {
@@ -280,7 +369,39 @@ class NotificationService {
       'timestamp': DateTime.now().toIso8601String(),
     };
     
+    if (storeForLater) {
+      _pendingLaunchNotification = tapData;
+    }
+
     _notificationTapStream.add(tapData);
+  }
+
+  Map<String, dynamic>? consumePendingLaunchNotification() {
+    final pendingLaunchNotification = _pendingLaunchNotification;
+    _pendingLaunchNotification = null;
+    return pendingLaunchNotification;
+  }
+
+  Map<String, dynamic> _parsePayload(String? payload) {
+    if (payload == null || payload.isEmpty) {
+      return <String, dynamic>{};
+    }
+
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      if (decoded is Map) {
+        return decoded.map(
+          (key, value) => MapEntry(key.toString(), value),
+        );
+      }
+    } catch (e) {
+      debugPrint('⚠️ Unable to parse notification payload: $e');
+    }
+
+    return <String, dynamic>{'payload': payload};
   }
 
   /// Mark an incident report as read by a supervisor
@@ -297,9 +418,9 @@ class NotificationService {
             'read': true,
             'readAt': DateTime.now().toIso8601String(),
           });
-      print('✅ Incident $incidentId marked as read by supervisor $supervisorUid');
+      debugPrint('✅ Incident $incidentId marked as read by supervisor $supervisorUid');
     } catch (e) {
-      print('❌ Error marking incident as read: $e');
+      debugPrint('❌ Error marking incident as read: $e');
     }
   }
 
@@ -316,7 +437,7 @@ class NotificationService {
           .get();
       return snapshot.exists && (snapshot.value as Map?)?.containsKey('read') == true;
     } catch (e) {
-      print('❌ Error checking if incident was read: $e');
+      debugPrint('❌ Error checking if incident was read: $e');
       return false;
     }
   }
@@ -348,7 +469,7 @@ class NotificationService {
             }
           } catch (e) {
             // If we can't get read status, continue without it
-            print('📊 Could not retrieve read status: $e');
+            debugPrint('📊 Could not retrieve read status: $e');
           }
 
           // Count incidents that haven't been read yet
@@ -420,12 +541,12 @@ class NotificationService {
   }) async {
     int notifiedCount = 0;
     try {
-      print('📢 Fetching supervisors to notify about new report...');
+      debugPrint('📢 Fetching supervisors to notify about new report...');
       
       // Get all supervisors
       final supervisorUids = await getAllSupervisors();
-      print('Found ${supervisorUids.length} supervisors');
-      print('🔍 Supervisor UIDs: $supervisorUids');
+      debugPrint('Found ${supervisorUids.length} supervisors');
+      debugPrint('🔍 Supervisor UIDs: $supervisorUids');
 
       for (String supervisorUid in supervisorUids) {
         final notificationData = {
@@ -445,17 +566,17 @@ class NotificationService {
               .push()
               .set(notificationData);
           
-          print('✅ Notification saved for supervisor: $supervisorUid');
+          debugPrint('✅ Notification saved for supervisor: $supervisorUid');
           notifiedCount++;
         } catch (e) {
-          print('❌ Error notifying supervisor $supervisorUid: $e');
+          debugPrint('❌ Error notifying supervisor $supervisorUid: $e');
         }
       }
       
-      print('✅ New report notification sent to $notifiedCount supervisors');
+      debugPrint('✅ New report notification sent to $notifiedCount supervisors');
       return notifiedCount;
     } catch (e) {
-      print('❌ Error notifying supervisors: $e');
+      debugPrint('❌ Error notifying supervisors: $e');
       return notifiedCount;
     }
   }
@@ -468,10 +589,10 @@ class NotificationService {
     required String newStatus,
   }) async {
     try {
-      print('📢 Notifying supervisor about update - UID: $supervisorUid, Report: $reportId');
+      debugPrint('📢 Notifying supervisor about update - UID: $supervisorUid, Report: $reportId');
       
       if (supervisorUid.isEmpty) {
-        print('❌ Supervisor UID is empty! Cannot send notification.');
+        debugPrint('❌ Supervisor UID is empty! Cannot send notification.');
         return false;
       }
 
@@ -491,10 +612,10 @@ class NotificationService {
           .push()
           .set(notificationData);
 
-      print('✅ Notification stored for supervisor: $supervisorUid');
+      debugPrint('✅ Notification stored for supervisor: $supervisorUid');
       return true;
     } catch (e) {
-      print('❌ Error notifying supervisor: $e');
+      debugPrint('❌ Error notifying supervisor: $e');
       return false;
     }
   }
@@ -508,10 +629,10 @@ class NotificationService {
     required String supervisorName,
   }) async {
     try {
-      print('📢 Attempting to notify reporter - UID: $reporterUid, Report: $reportId');
+      debugPrint('📢 Attempting to notify reporter - UID: $reporterUid, Report: $reportId');
       
       if (reporterUid.isEmpty) {
-        print('❌ Reporter UID is empty! Cannot send notification.');
+        debugPrint('❌ Reporter UID is empty! Cannot send notification.');
         return false;
       }
 
@@ -522,7 +643,7 @@ class NotificationService {
           .child('fcmToken')
           .get();
 
-      print('🔍 FCM Token check - Exists: ${tokenSnapshot.exists}, Value: ${tokenSnapshot.value}');
+      debugPrint('🔍 FCM Token check - Exists: ${tokenSnapshot.exists}, Value: ${tokenSnapshot.value}');
 
       final notificationData = {
         'title': 'Report Updated',
@@ -541,10 +662,10 @@ class NotificationService {
           .push()
           .set(notificationData);
 
-      print('✅ Notification stored for reporter: $reporterUid at path: userNotifications/$reporterUid');
+      debugPrint('✅ Notification stored for reporter: $reporterUid at path: userNotifications/$reporterUid');
       return true;
     } catch (e) {
-      print('❌ Error notifying reporter: $e');
+      debugPrint('❌ Error notifying reporter: $e');
       return false;
     }
   }
@@ -573,10 +694,10 @@ class NotificationService {
         
         successCount++;
       }
-      print('Bulk notification sent to $successCount reporters');
+      debugPrint('Bulk notification sent to $successCount reporters');
       return successCount;
     } catch (e) {
-      print('Error sending bulk notifications: $e');
+      debugPrint('Error sending bulk notifications: $e');
       return successCount;
     }
   }
@@ -626,18 +747,20 @@ class NotificationService {
           .child(userId)
           .child(notificationId)
           .update({'read': true});
-      print('✅ Notification marked as read: $notificationId');
+      final remainingUnreadCount = await _getUnreadCountSnapshot(userId);
+      await updateAppBadgeCount(remainingUnreadCount);
+      debugPrint('✅ Notification marked as read: $notificationId');
       // Ensure the stream gets updated by making a small delay
       await Future.delayed(const Duration(milliseconds: 100));
     } catch (e) {
-      print('❌ Error marking notification as read: $e');
+      debugPrint('❌ Error marking notification as read: $e');
     }
   }
 
   /// Mark all notifications as read for a user
   Future<void> markAllNotificationsAsRead(String userId) async {
     try {
-      print('📋 Marking all notifications as read for user: $userId');
+      debugPrint('📋 Marking all notifications as read for user: $userId');
       final snapshot = await _dbRef
           .child('userNotifications')
           .child(userId)
@@ -667,13 +790,14 @@ class NotificationService {
           
           if (updateTasks.isNotEmpty) {
             await Future.wait(updateTasks);
+            await updateAppBadgeCount(0);
             await Future.delayed(const Duration(milliseconds: 200));
-            print('✅ Marked $count notifications as read');
+            debugPrint('✅ Marked $count notifications as read');
           }
         }
       }
     } catch (e) {
-      print('❌ Error marking all notifications as read: $e');
+      debugPrint('❌ Error marking all notifications as read: $e');
     }
   }
 
@@ -685,8 +809,10 @@ class NotificationService {
           .child(userId)
           .child(notificationId)
           .remove();
+      final remainingUnreadCount = await _getUnreadCountSnapshot(userId);
+      await updateAppBadgeCount(remainingUnreadCount);
     } catch (e) {
-      print('Error deleting notification: $e');
+      debugPrint('Error deleting notification: $e');
     }
   }
 
@@ -707,7 +833,7 @@ class NotificationService {
         };
       }
     } catch (e) {
-      print('Error getting notification preferences: $e');
+      debugPrint('Error getting notification preferences: $e');
       return {
         'newReports': true,
       };
@@ -724,9 +850,9 @@ class NotificationService {
           .child('notificationPreferences')
           .child(userId)
           .set(preferences);
-      print('Notification preferences updated for user: $userId');
+      debugPrint('Notification preferences updated for user: $userId');
     } catch (e) {
-      print('Error updating notification preferences: $e');
+      debugPrint('Error updating notification preferences: $e');
     }
   }
 
@@ -754,16 +880,45 @@ class NotificationService {
           });
         }
       }
-      print('📊 Unread notification count for $userId: $count');
+      if (_lastLoggedUnreadCounts[userId] != count) {
+        _lastLoggedUnreadCounts[userId] = count;
+        debugPrint('📊 Unread notification count for $userId: $count');
+      }
       return count;
     });
+  }
+
+  Future<int> _getUnreadCountSnapshot(String userId) async {
+    try {
+      final snapshot = await _dbRef
+          .child('userNotifications')
+          .child(userId)
+          .get();
+
+      int count = 0;
+      if (snapshot.exists) {
+        final data = snapshot.value as Map?;
+        if (data != null) {
+          data.forEach((key, value) {
+            if (value is Map && value['read'] != true) {
+              count++;
+            }
+          });
+        }
+      }
+
+      return count;
+    } catch (e) {
+      debugPrint('⚠️ Error reading unread badge snapshot: $e');
+      return 0;
+    }
   }
 
   /// Auto-mark all unread notifications as read for a user
   /// Call this when user opens the notifications viewer
   Future<void> autoMarkUnreadNotificationsAsRead(String userId) async {
     try {
-      print('📋 Auto-marking all unread notifications as read for user: $userId');
+      debugPrint('📋 Auto-marking all unread notifications as read for user: $userId');
       final snapshot = await _dbRef
           .child('userNotifications')
           .child(userId)
@@ -797,12 +952,12 @@ class NotificationService {
             await Future.wait(updateTasks);
             // Extra delay to ensure stream updates
             await Future.delayed(const Duration(milliseconds: 200));
-            print('✅ Auto-marked $count notifications as read');
+            debugPrint('✅ Auto-marked $count notifications as read');
           }
         }
       }
     } catch (e) {
-      print('❌ Error auto-marking notifications as read: $e');
+      debugPrint('❌ Error auto-marking notifications as read: $e');
     }
   }
 
@@ -825,10 +980,10 @@ class NotificationService {
           });
         }
       }
-      print('Found ${supervisors.length} supervisors');
+      debugPrint('Found ${supervisors.length} supervisors');
       return supervisors;
     } catch (e) {
-      print('Error getting supervisors: $e');
+      debugPrint('Error getting supervisors: $e');
       return [];
     }
   }
@@ -846,7 +1001,7 @@ class NotificationService {
       final supervisors = await getAllSupervisors();
       
       if (supervisors.isEmpty) {
-        print('No supervisors found to notify about notes');
+        debugPrint('No supervisors found to notify about notes');
         return;
       }
 
@@ -873,10 +1028,11 @@ class NotificationService {
         sentCount++;
       }
 
-      print('✅ Note notification sent to $sentCount supervisors for report: $reportId');
+      debugPrint('✅ Note notification sent to $sentCount supervisors for report: $reportId');
     } catch (e) {
-      print('❌ Error notifying supervisors on note added: $e');
+      debugPrint('❌ Error notifying supervisors on note added: $e');
     }
   }
 }
+
 

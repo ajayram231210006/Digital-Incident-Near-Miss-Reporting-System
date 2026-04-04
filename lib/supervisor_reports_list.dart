@@ -200,15 +200,15 @@ class _SupervisorReportsListState extends State<SupervisorReportsList> {
 
                 if (filtered.isEmpty) {
                   return Center(
-                    child: Text('No ${_selectedFilter} reports found'),
+                    child: Text('No $_selectedFilter reports found'),
                   );
                 }
 
                 return Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    color: Colors.grey.withOpacity(0.05),
-                    border: Border.all(color: Colors.grey.withOpacity(0.2)),
+                    color: Colors.grey.withValues(alpha: 0.05),
+                    border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
                   ),
                   margin: const EdgeInsets.all(12.0),
                   child: ListView.builder(
@@ -290,8 +290,8 @@ class _ReportCard extends StatelessWidget {
           color: Colors.transparent,
           child: InkWell(
             onTap: onTap,
-            splashColor: Colors.grey.withOpacity(0.1),
-            highlightColor: Colors.grey.withOpacity(0.05),
+            splashColor: Colors.grey.withValues(alpha: 0.1),
+            highlightColor: Colors.grey.withValues(alpha: 0.05),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 12.0),
               child: Row(
@@ -347,7 +347,7 @@ class _ReportCard extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: statusColor.withOpacity(0.15),
+                          color: statusColor.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
@@ -362,7 +362,7 @@ class _ReportCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       Icon(
                         Icons.chevron_right,
-                        color: Colors.grey.withOpacity(0.5),
+                        color: Colors.grey.withValues(alpha: 0.5),
                         size: 18,
                       ),
                     ],
@@ -373,7 +373,7 @@ class _ReportCard extends StatelessWidget {
           ),
         ),
         Divider(
-          color: Colors.grey.withOpacity(0.2),
+          color: Colors.grey.withValues(alpha: 0.2),
           height: 1,
           indent: 16,
           endIndent: 16,

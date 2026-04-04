@@ -14,7 +14,7 @@ class ReporterTrendsWidget extends StatefulWidget {
 
 class _ReporterTrendsWidgetState extends State<ReporterTrendsWidget> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
-  bool _isWeekly = true;
+  final bool _isWeekly = true;
 
   Stream<Map<String, int>> _getTrendsStream() {
     return _dbRef.child('incidents').onValue.map((event) {
@@ -105,7 +105,7 @@ class _ReporterTrendsWidgetState extends State<ReporterTrendsWidget> {
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.blue.withOpacity(0.1),
+                color: Colors.blue.withValues(alpha: 0.1),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
               ),
@@ -240,7 +240,7 @@ class _ReporterTrendsWidgetState extends State<ReporterTrendsWidget> {
                             barWidth: 3,
                             belowBarData: BarAreaData(
                               show: true,
-                              color: Colors.blue.withOpacity(0.1),
+                              color: Colors.blue.withValues(alpha: 0.1),
                             ),
                             dotData: FlDotData(
                               show: true,
@@ -330,9 +330,9 @@ class _TrendStatBox extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
