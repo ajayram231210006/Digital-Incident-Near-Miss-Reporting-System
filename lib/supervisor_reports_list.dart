@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'supervisor_report_detail.dart';
@@ -19,7 +20,8 @@ class SupervisorReportsList extends StatefulWidget {
   State<SupervisorReportsList> createState() => _SupervisorReportsListState();
 }
 
-class _SupervisorReportsListState extends State<SupervisorReportsList> {
+class _SupervisorReportsListState extends State<SupervisorReportsList>
+    with AutomaticKeepAliveClientMixin {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   String _selectedFilter = 'all';
   bool _isSeverityFilter = false;
@@ -37,7 +39,11 @@ class _SupervisorReportsListState extends State<SupervisorReportsList> {
   }
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -200,15 +206,15 @@ class _SupervisorReportsListState extends State<SupervisorReportsList> {
 
                 if (filtered.isEmpty) {
                   return Center(
-                    child: Text('No $_selectedFilter reports found'),
+                    child: Text('No ${_selectedFilter} reports found'),
                   );
                 }
 
                 return Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    color: Colors.grey.withValues(alpha: 0.05),
-                    border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+                    color: Colors.grey.withOpacity(0.05),
+                    border: Border.all(color: Colors.grey.withOpacity(0.2)),
                   ),
                   margin: const EdgeInsets.all(12.0),
                   child: ListView.builder(
@@ -262,7 +268,7 @@ class _FilterChip extends StatelessWidget {
   }
 }
 
-class _ReportCard extends StatelessWidget {
+class _ReportCard extends StatefulWidget {
   final Map<String, dynamic> report;
   final VoidCallback onTap;
 
@@ -272,99 +278,258 @@ class _ReportCard extends StatelessWidget {
   });
 
   @override
+  State<_ReportCard> createState() => _ReportCardState();
+}
+
+class _ReportCardState extends State<_ReportCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final status = (report['status'] ?? 'open').toString().toLowerCase();
+    final status = (widget.report['status'] ?? 'open').toString().toLowerCase();
+    final severity = (widget.report['severity'] ?? 'Not Set').toString();
+    final reportType = widget.report['type'] ?? 'Unknown Type';
+    final location = widget.report['location'] ?? 'No Location';
+    final reporter = widget.report['reporterEmail'] ?? 'Unknown';
+    final createdAt = DateTime.tryParse(widget.report['createdAt'] ?? '')
+        ?.toLocal();
+
+    // Get colors based on status
     final statusColor = status == 'closed'
         ? Colors.green
         : status == 'active'
             ? Colors.orange
             : Colors.amber;
 
-    final reportType = report['type'] ?? 'Unknown Type';
-    final location = report['location'] ?? 'No Location';
-    final reporter = report['reporterEmail'] ?? 'Unknown';
+    // Get severity color
+    final severityColor = severity.toLowerCase() == 'critical'
+        ? Colors.red
+        : severity.toLowerCase() == 'high'
+            ? Colors.orange
+            : severity.toLowerCase() == 'medium'
+                ? Colors.yellow
+                : Colors.blue;
 
-    return Column(
-      children: [
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            splashColor: Colors.grey.withValues(alpha: 0.1),
-            highlightColor: Colors.grey.withValues(alpha: 0.05),
+    return GestureDetector(
+      onTapDown: (_) => _controller.forward(),
+      onTapUp: (_) {
+        _controller.reverse();
+        HapticFeedback.lightImpact();
+        widget.onTap();
+      },
+      onTapCancel: () => _controller.reverse(),
+      child: ScaleTransition(
+        scale: Tween<double>(begin: 1.0, end: 0.98).animate(
+          CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+        ),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Card(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 12.0),
-              child: Row(
+              padding: const EdgeInsets.all(14),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Content
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Report Type (Title)
-                        Text(
-                          reportType,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        // Location
-                        Text(
-                          'Location: $location',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        // Reporter
-                        Text(
-                          'Reporter: $reporter',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  // Status Badge and Chevron
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                  // Header row
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Left side - Icon
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        width: 48,
+                        height: 48,
                         decoration: BoxDecoration(
-                          color: statusColor.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(4),
+                          color: statusColor.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          Icons.warning_amber_rounded,
+                          color: statusColor,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Middle - Content
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Report Type
+                            Text(
+                              reportType,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                            const SizedBox(height: 4),
+                            // Location
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.location_on_outlined,
+                                  size: 14,
+                                  color: Colors.grey.shade500,
+                                ),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    location,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: Colors.grey.shade600,
+                                        ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      // Right side - Badge
+                      Container(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
                           status[0].toUpperCase() + status.substring(1),
                           style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
                             color: statusColor,
                           ),
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Icon(
-                        Icons.chevron_right,
-                        color: Colors.grey.withValues(alpha: 0.5),
-                        size: 18,
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // Divider
+                  Divider(
+                    height: 1,
+                    color: Colors.grey.shade200,
+                  ),
+                  const SizedBox(height: 10),
+                  // Footer row
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 14,
+                              backgroundColor: Colors.blue.withOpacity(0.2),
+                              child: Text(
+                                (reporter.split('@').first.substring(0, 1))
+                                    .toUpperCase(),
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Reporter',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: Colors.grey.shade500,
+                                          fontSize: 11,
+                                        ),
+                                  ),
+                                  Text(
+                                    reporter.split('@').first,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
+                      const SizedBox(width: 12),
+                      // Severity badge
+                      Container(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: severityColor.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          severity.length > 3
+                              ? severity.substring(0, 3).toUpperCase()
+                              : severity.toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: severityColor,
+                          ),
+                        ),
+                      ),
+                      if (createdAt != null) ...[
+                        const SizedBox(width: 8),
+                        Icon(
+                          Icons.arrow_forward_ios_rounded,
+                          size: 14,
+                          color: Colors.grey.shade400,
+                        ),
+                      ],
                     ],
                   ),
                 ],
@@ -372,13 +537,7 @@ class _ReportCard extends StatelessWidget {
             ),
           ),
         ),
-        Divider(
-          color: Colors.grey.withValues(alpha: 0.2),
-          height: 1,
-          indent: 16,
-          endIndent: 16,
-        ),
-      ],
+      ),
     );
   }
 }

@@ -26,6 +26,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
   late String _notes;
   final _notesController = TextEditingController();
   bool _saving = false;
+  bool _hasChanges = false;
 
   @override
   void initState() {
@@ -46,10 +47,9 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
           currentUser.uid,
           widget.reportId,
         );
-        debugPrint('✅ Report marked as read for supervisor');
       }
     } catch (e) {
-      debugPrint('❌ Error marking report as read: $e');
+      // Silent fail
     }
   }
 
@@ -67,7 +67,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
         }
       }
     } catch (e) {
-      debugPrint('Error loading notes: $e');
+      // Silent fail
     }
   }
 
@@ -78,6 +78,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
   }
 
   Future<void> _saveChanges() async {
+    if (!mounted) return;
     setState(() => _saving = true);
     try {
       // Get the original status, severity, and notes to check if they changed
@@ -87,8 +88,6 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
       final newNotes = _notesController.text.trim();
       final notesChanged = originalNotes != newNotes;
 
-      debugPrint('📝 Saving changes - Status: $originalStatus→$_status, Severity: $originalSeverity→$_severity, Notes changed: $notesChanged');
-      
       // Update the report
       await _dbRef.child('incidents/${widget.reportId}').update({
         'status': _status,
@@ -96,18 +95,51 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
         'notes': newNotes,
         'lastModified': DateTime.now().toIso8601String(),
       });
+      
+      if (!mounted) return;
 
-      final reporterUid = widget.report['reporterUid']?.toString();
+      // Get reporter UID - try multiple possible field names
+      var reporterUid = '';
+      
+      // Try different possible field names from widget.report
+      final possibleUidFields = ['reporterUid', 'reporterId', 'uid', 'createdBy'];
+      for (final field in possibleUidFields) {
+        final value = widget.report[field];
+        if (value != null) {
+          reporterUid = value.toString().trim();
+          if (reporterUid.isNotEmpty) break;
+        }
+      }
+      
+      // If still not found, try loading from Firebase directly
+      if (reporterUid.isEmpty) {
+        debugPrint('⚠️ Reporter UID not found in widget.report, trying Firebase...');
+        try {
+          final snapshot = await _dbRef.child('incidents/${widget.reportId}').get();
+          if (snapshot.exists) {
+            final incidentData = snapshot.value as Map?;
+            if (incidentData != null) {
+              reporterUid = (incidentData['reporterUid'] ?? '').toString().trim();
+            }
+          }
+        } catch (e) {
+          debugPrint('⚠️ Error loading reporter UID from Firebase: $e');
+        }
+      }
+      
+      if (reporterUid.isEmpty) {
+        debugPrint('⚠️ Available report fields: ${widget.report.keys.toList()}');
+      }
+      debugPrint('🔍 Reporter UID extracted: $reporterUid (length: ${reporterUid.length})');
+      
       final reportType = widget.report['type'] ?? 'Report';
       final supervisorName = FirebaseAuth.instance.currentUser?.displayName ?? 
                              FirebaseAuth.instance.currentUser?.email?.split('@').first ?? 
                              'Supervisor';
 
-      debugPrint('📋 Report Details - ReporterUID: $reporterUid, Type: $reportType, Supervisor: $supervisorName');
-
       // Send notification if status or severity changed
       if (originalStatus != _status || originalSeverity != _severity) {
-        if (reporterUid != null && reporterUid.isNotEmpty) {
+        if (reporterUid.isNotEmpty) {
           debugPrint('🔔 Notifying reporter of status/severity change');
           
           // Create detailed notification message based on changes
@@ -148,6 +180,20 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                 .push()
                 .set(notificationData);
             debugPrint('✅ Reporter notified about status/severity change: $notificationTitle');
+            
+            // Notify all reporters about the update
+            await _notificationService.notifyAllReportersOnUpdate(
+              reportId: widget.reportId,
+              reportType: reportType,
+              description: widget.report['description'] ?? '',
+              status: _status,
+              severity: _severity,
+              supervisorName: supervisorName,
+            );
+            
+            if (mounted) {
+              setState(() => _hasChanges = false);
+            }
           }
         } else {
           debugPrint('⚠️ Reporter UID is null or empty! Cannot notify reporter.');
@@ -156,8 +202,6 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
 
       // Send notification if notes were added
       if (notesChanged && newNotes.isNotEmpty) {
-        debugPrint('📝 Notes changed - notifying reporter and supervisors');
-        
         // Get additional report details for better notification formatting
         final reportTitle = widget.report['description'] ?? reportType;
         final location = widget.report['location'] ?? 'Unknown Location';
@@ -165,10 +209,8 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
             ? '${newNotes.substring(0, 80)}...' 
             : newNotes;
         
-        debugPrint('📋 Notification details - Title: $reportTitle, Location: $location');
-        
         // Notify reporter about notes added
-        if (reporterUid != null && reporterUid.isNotEmpty) {
+        if (reporterUid.isNotEmpty) {
           final reporterNoteNotificationData = {
             'title': 'Notes Added: $reportType',
             'body': '$supervisorName added notes to your report "$reportTitle": "$notePreview"',
@@ -186,8 +228,6 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
               .child(reporterUid)
               .push()
               .set(reporterNoteNotificationData);
-          
-          debugPrint('✅ Reporter notified about notes: $reportTitle');
         }
 
         // Notify supervisors about notes added
@@ -199,6 +239,16 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
           supervisorName: supervisorName,
           notePreview: notePreview,
         );
+
+        // Notify all reporters about notes added
+        await _notificationService.notifyAllReportersOnUpdate(
+          reportId: widget.reportId,
+          reportType: reportType,
+          description: reportTitle,
+          status: _status,
+          severity: _severity,
+          supervisorName: supervisorName,
+        );
       }
 
       if (mounted) {
@@ -207,7 +257,6 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
         );
       }
     } catch (e) {
-      debugPrint('❌ Error during save: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error updating report: $e')),
@@ -222,6 +271,48 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
 
   @override
   Widget build(BuildContext context) {
+    // Convert Firebase Map to List (Firebase stores lists as Maps with numeric keys)
+    final imageParams = widget.report['imageUrls'];
+    final imageUrlsList = imageParams is List 
+      ? List<String>.from(imageParams.whereType<String>())
+      : imageParams is Map 
+        ? imageParams.values.whereType<String>().toList()
+        : <String>[];
+
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        if (_hasChanges && _saving == false) {
+          final shouldPop = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Discard changes?'),
+              content: const Text('You have unsaved changes.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Discard'),
+                ),
+              ],
+            ),
+          ) ?? false;
+          if (shouldPop) {
+            if (context.mounted) Navigator.pop(context);
+          }
+        } else {
+          if (context.mounted) Navigator.pop(context);
+        }
+      },
+      child: _buildScaffold(imageUrlsList),
+    );
+  }
+
+  Widget _buildScaffold(List<String> imageUrlsList) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -259,7 +350,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                               decoration: BoxDecoration(
-                                color: Colors.blue.withValues(alpha: 0.1),
+                                color: Colors.blue.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
@@ -287,10 +378,10 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.blue.withValues(alpha: 0.1),
+                          color: Colors.blue.withOpacity(0.1),
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: Colors.blue.withValues(alpha: 0.3),
+                            color: Colors.blue.withOpacity(0.3),
                             width: 2,
                           ),
                         ),
@@ -369,8 +460,102 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
             const SizedBox(height: 20),
 
             // Image Section (if available)
-            if (widget.report['imageUrl'] != null &&
-                (widget.report['imageUrl'] as String).isNotEmpty)
+            if (imageUrlsList.isNotEmpty) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.grey[300]!,
+                    width: 1,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Incident Photos (${imageUrlsList.length})',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    const SizedBox(height: 12),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                      ),
+                      itemCount: imageUrlsList.length,
+                      itemBuilder: (context, index) {
+                        final imageUrl = imageUrlsList[index];
+                        return GestureDetector(
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => ImageViewer(
+                                  imageUrl: imageUrl,
+                                  title: 'Incident Image ${index + 1}',
+                                ),
+                              ),
+                            );
+                          },
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                Image.network(
+                                  imageUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey[300],
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: const Center(
+                                        child: Icon(Icons.error),
+                                      ),
+                                    );
+                                  },
+                                ),
+                                Positioned(
+                                  bottom: 0,
+                                  right: 0,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black54,
+                                      borderRadius: const BorderRadius.only(
+                                        topLeft: Radius.circular(8),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      '${index + 1}',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+            ] else if (widget.report['imageUrl'] != null &&
+                (widget.report['imageUrl'] as String).isNotEmpty) ...[
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
@@ -411,7 +596,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                               borderRadius: BorderRadius.circular(12),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.1),
+                                  color: Colors.black.withOpacity(0.1),
                                   blurRadius: 8,
                                   offset: const Offset(0, 2),
                                 ),
@@ -434,6 +619,115 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                                   ),
                                 );
                               },
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 20),
+
+            // Video Section (if available)
+            if (widget.report['videoUrl'] != null &&
+                (widget.report['videoUrl'] as String).isNotEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.grey[300]!,
+                    width: 1,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Incident Video',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    const SizedBox(height: 12),
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => ImageViewer(
+                              imageUrl: widget.report['videoUrl'],
+                              title: 'Incident Video',
+                              isVideo: true,
+                            ),
+                          ),
+                        );
+                      },
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.1),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                              color: Colors.black87,
+                            ),
+                            width: double.infinity,
+                            height: 220,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                Icon(
+                                  Icons.video_library,
+                                  size: 64,
+                                  color: Colors.orange.shade300,
+                                ),
+                                Positioned(
+                                  right: 12,
+                                  bottom: 12,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red.withOpacity(0.8),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.fiber_manual_record,
+                                          color: Colors.white,
+                                          size: 8,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Tap to play',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -528,6 +822,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                       onSelectionChanged: (Set<String> newSelection) {
                         setState(() {
                           _status = newSelection.first;
+                          _hasChanges = true;
                         });
                       },
                     ),
@@ -623,6 +918,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                       onSelectionChanged: (Set<String> newSelection) {
                         setState(() {
                           _severity = newSelection.first;
+                          _hasChanges = true;
                         });
                       },
                     ),
@@ -649,7 +945,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                 children: [
                   Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.note_outlined,
                         color: Colors.tealAccent,
                         size: 20,
@@ -666,6 +962,11 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _notesController,
+                    onChanged: (value) {
+                      setState(() {
+                        _hasChanges = true;
+                      });
+                    },
                     maxLines: 5,
                     decoration: InputDecoration(
                       hintText: 'Add your observations and actions taken...',
@@ -707,7 +1008,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   elevation: 4,
-                  shadowColor: Colors.blue.withValues(alpha: 0.3),
+                  shadowColor: Colors.blue.withOpacity(0.3),
                 ),
                 icon: _saving
                     ? const SizedBox(
@@ -749,9 +1050,9 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        color: color.withValues(alpha: 0.08),
+        color: color.withOpacity(0.08),
         border: Border.all(
-          color: color.withValues(alpha: 0.2),
+          color: color.withOpacity(0.2),
           width: 1,
         ),
       ),
@@ -814,3 +1115,5 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
   }
 
 }
+
+

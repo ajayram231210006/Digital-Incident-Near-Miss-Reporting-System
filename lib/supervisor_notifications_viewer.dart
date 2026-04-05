@@ -231,7 +231,9 @@ class _SupervisorNotificationsViewerState
               if (timestamp is String && timestamp.isNotEmpty) {
                 try {
                   notificationTime = DateTime.parse(timestamp);
+                  debugPrint('🕐 Notification timestamp parsed: $timestamp -> $notificationTime');
                 } catch (e) {
+                  debugPrint('❌ Failed to parse timestamp: $timestamp, error: $e');
                   // Keep current time
                 }
               }
@@ -239,6 +241,7 @@ class _SupervisorNotificationsViewerState
               final timeDiff =
                   DateTime.now().difference(notificationTime);
               String timeString = _getTimeString(timeDiff);
+              debugPrint('📊 Notification time display: $timeString (diff: ${timeDiff.inMinutes} minutes)');
 
               return Dismissible(
                 key: Key(notificationId),

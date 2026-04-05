@@ -232,46 +232,37 @@ class _LoginDialogState extends State<_LoginDialog> with TickerProviderStateMixi
   Future<void> _showMessage(String message, {bool isError = true}) async {
     if (!mounted) return;
     
-    // CAPTURE messenger here to avoid "unmounted context" errors in callbacks
-    final messenger = ScaffoldMessenger.of(context);
-    
-    final bg = isError ? Colors.red.shade700 : Colors.green.shade600;
-    final icon = isError ? Icons.error_outline : Icons.check_circle_outline;
-    
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(icon, color: Colors.white),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                message,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        icon: Icon(
+          isError ? Icons.error_outline : Icons.check_circle_outline,
+          color: isError ? Colors.red.shade700 : Colors.green.shade600,
+          size: 32,
+        ),
+        title: Text(
+          isError ? 'Error' : 'Success',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          message,
+          style: const TextStyle(fontSize: 16),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isError ? Colors.red.shade700 : Colors.green.shade600,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
-          ],
-        ),
-        backgroundColor: bg,
-        duration: const Duration(seconds: 4),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: EdgeInsets.only(
-          bottom: MediaQuery.of(context).size.height * 0.05,
-          left: 20,
-          right: 20,
-        ),
-        elevation: 6,
-        action: SnackBarAction(
-          label: 'Dismiss',
-          textColor: Colors.white,
-          onPressed: () => messenger.removeCurrentSnackBar(),
-        ),
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text(
+              'OK',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -692,46 +683,37 @@ class _SignUpDialogState extends State<_SignUpDialog> with TickerProviderStateMi
   Future<void> _showMessage(String message, {bool isError = true}) async {
     if (!mounted) return;
     
-    // CAPTURE messenger here to avoid "unmounted context" errors in callbacks
-    final messenger = ScaffoldMessenger.of(context);
-    
-    final bg = isError ? Colors.red.shade700 : Colors.green.shade600;
-    final icon = isError ? Icons.error_outline : Icons.check_circle_outline;
-    
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(icon, color: Colors.white),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                message,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        icon: Icon(
+          isError ? Icons.error_outline : Icons.check_circle_outline,
+          color: isError ? Colors.red.shade700 : Colors.green.shade600,
+          size: 32,
+        ),
+        title: Text(
+          isError ? 'Error' : 'Success',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          message,
+          style: const TextStyle(fontSize: 16),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isError ? Colors.red.shade700 : Colors.green.shade600,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
-          ],
-        ),
-        backgroundColor: bg,
-        duration: const Duration(seconds: 4),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        margin: EdgeInsets.only(
-          bottom: MediaQuery.of(context).size.height * 0.05,
-          left: 20,
-          right: 20,
-        ),
-        elevation: 6,
-        action: SnackBarAction(
-          label: 'Dismiss',
-          textColor: Colors.white,
-          onPressed: () => messenger.removeCurrentSnackBar(),
-        ),
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text(
+              'OK',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -11,6 +11,7 @@ import 'reporter_trends_widget.dart';
 import 'activity_timeline_widget.dart';
 import 'report_templates_dialog.dart';
 import 'performance_analytics_page.dart';
+import 'system_reports_viewer.dart';
 
 class ReporterDashboard extends StatefulWidget {
   final User user;
@@ -472,6 +473,21 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                         isPrimary: false,
                         onPressed: () =>
                             _navigateToReports(context, 'all'),
+                      ),
+                      const SizedBox(height: 10),
+                      _QuickActionButton(
+                        label: 'System Reports',
+                        icon: Icons.public,
+                        isPrimary: false,
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  SystemReportsViewer(user: widget.user),
+                            ),
+                          );
+                        },
                       ),
                       const SizedBox(height: 32),
 

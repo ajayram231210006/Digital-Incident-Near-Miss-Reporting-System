@@ -46,3 +46,7 @@ app.*.map.json
 
 *.json
 local-push-sender/service-account.json
+
+# Node modules
+node_modules/
+local-push-sender/node_modules/
