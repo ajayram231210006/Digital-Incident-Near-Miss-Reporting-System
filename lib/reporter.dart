@@ -34,6 +34,14 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
   final NotificationService _notificationService = NotificationService();
 
   @override
+  void initState() {
+    super.initState();
+    // Initialize incident date to today
+    _incidentDate = DateTime.now();
+    debugPrint('📅 Report form initialized with date: ${_incidentDate!.toIso8601String()}');
+  }
+
+  @override
   void dispose() {
     _typeController.dispose();
     _descriptionController.dispose();
@@ -272,6 +280,8 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
       };
 
       debugPrint('📝 Saving incident to Firebase...');
+      debugPrint('   - Incident Date: ${incident['date']}');
+      debugPrint('   - Created At: ${incident['createdAt']}');
       debugPrint('   - Image URLs (${imageUrls.length}): $imageUrls');
       debugPrint('   - Video URL: $videoUrl');
 
@@ -287,6 +297,16 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
         reportTitle: _typeController.text.trim(),
         reporterName: widget.user.displayName ?? widget.user.email ?? 'Unknown Reporter',
         severity: 'Not Set',
+      );
+
+      // Notify all reporters about the new report
+      await _notificationService.notifyAllReportersOnNewReport(
+        reportId: newReportRef.key ?? 'unknown',
+        reportType: _typeController.text.trim(),
+        reportTitle: _typeController.text.trim(),
+        reporterName: widget.user.displayName ?? widget.user.email ?? 'Unknown Reporter',
+        severity: 'Not Set',
+        reporterUid: widget.user.uid,
       );
 
       if (mounted) {
@@ -309,13 +329,18 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
 
   Future<void> _pickDate() async {
     final now = DateTime.now();
+    // Default to today if no date selected yet
+    final initialDate = _incidentDate ?? now;
     final picked = await showDatePicker(
       context: context,
-      initialDate: now,
+      initialDate: initialDate,
       firstDate: DateTime(now.year - 5),
-      lastDate: DateTime(now.year + 1),
+      lastDate: now, // Prevent selecting future dates
     );
-    if (picked != null) setState(() => _incidentDate = picked);
+    if (picked != null) {
+      setState(() => _incidentDate = picked);
+      debugPrint('📅 Incident date selected: ${picked.toIso8601String()}');
+    }
   }
 
   @override

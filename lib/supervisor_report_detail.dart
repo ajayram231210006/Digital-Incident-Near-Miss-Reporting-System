@@ -98,11 +98,39 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
       
       if (!mounted) return;
 
-      // Get reporter UID - try from report data first, then fall back to user data
-      var reporterUid = widget.report['reporterUid']?.toString() ?? '';
-      if (reporterUid.isEmpty && widget.report['reporterId'] != null) {
-        reporterUid = widget.report['reporterId'].toString();
+      // Get reporter UID - try multiple possible field names
+      var reporterUid = '';
+      
+      // Try different possible field names from widget.report
+      final possibleUidFields = ['reporterUid', 'reporterId', 'uid', 'createdBy'];
+      for (final field in possibleUidFields) {
+        final value = widget.report[field];
+        if (value != null) {
+          reporterUid = value.toString().trim();
+          if (reporterUid.isNotEmpty) break;
+        }
       }
+      
+      // If still not found, try loading from Firebase directly
+      if (reporterUid.isEmpty) {
+        debugPrint('⚠️ Reporter UID not found in widget.report, trying Firebase...');
+        try {
+          final snapshot = await _dbRef.child('incidents/${widget.reportId}').get();
+          if (snapshot.exists) {
+            final incidentData = snapshot.value as Map?;
+            if (incidentData != null) {
+              reporterUid = (incidentData['reporterUid'] ?? '').toString().trim();
+            }
+          }
+        } catch (e) {
+          debugPrint('⚠️ Error loading reporter UID from Firebase: $e');
+        }
+      }
+      
+      if (reporterUid.isEmpty) {
+        debugPrint('⚠️ Available report fields: ${widget.report.keys.toList()}');
+      }
+      debugPrint('🔍 Reporter UID extracted: $reporterUid (length: ${reporterUid.length})');
       
       final reportType = widget.report['type'] ?? 'Report';
       final supervisorName = FirebaseAuth.instance.currentUser?.displayName ?? 
@@ -112,7 +140,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
       // Send notification if status or severity changed
       if (originalStatus != _status || originalSeverity != _severity) {
         if (reporterUid.isNotEmpty) {
-          print('🔔 Notifying reporter of status/severity change');
+          debugPrint('🔔 Notifying reporter of status/severity change');
           
           // Create detailed notification message based on changes
           String notificationTitle = '';
@@ -151,13 +179,24 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                 .child(reporterUid)
                 .push()
                 .set(notificationData);
-            print('✅ Reporter notified about status/severity change: $notificationTitle');
+            debugPrint('✅ Reporter notified about status/severity change: $notificationTitle');
+            
+            // Notify all reporters about the update
+            await _notificationService.notifyAllReportersOnUpdate(
+              reportId: widget.reportId,
+              reportType: reportType,
+              description: widget.report['description'] ?? '',
+              status: _status,
+              severity: _severity,
+              supervisorName: supervisorName,
+            );
+            
             if (mounted) {
               setState(() => _hasChanges = false);
             }
           }
         } else {
-          print('⚠️ Reporter UID is null or empty! Cannot notify reporter.');
+          debugPrint('⚠️ Reporter UID is null or empty! Cannot notify reporter.');
         }
       }
 
@@ -199,6 +238,16 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
           location: location,
           supervisorName: supervisorName,
           notePreview: notePreview,
+        );
+
+        // Notify all reporters about notes added
+        await _notificationService.notifyAllReportersOnUpdate(
+          reportId: widget.reportId,
+          reportType: reportType,
+          description: reportTitle,
+          status: _status,
+          severity: _severity,
+          supervisorName: supervisorName,
         );
       }
 

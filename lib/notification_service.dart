@@ -531,7 +531,7 @@ class NotificationService {
     });
   }
 
-  /// Send notification to supervisors when a new report is submitted
+  /// Notify supervisors on new report with fallback mechanism
   Future<int> notifySupervisorsOnNewReport({
     required String reportId,
     required String reportType,
@@ -544,9 +544,24 @@ class NotificationService {
       debugPrint('📢 Fetching supervisors to notify about new report...');
       
       // Get all supervisors
-      final supervisorUids = await getAllSupervisors();
+      var supervisorUids = await getAllSupervisors();
       debugPrint('Found ${supervisorUids.length} supervisors');
       debugPrint('🔍 Supervisor UIDs: $supervisorUids');
+
+      // Fallback: if no supervisors found, notify ALL users
+      if (supervisorUids.isEmpty) {
+        debugPrint('⚠️ No supervisors found! Attempting fallback: notifying all users');
+        try {
+          final usersSnapshot = await _dbRef.child('users').get();
+          if (usersSnapshot.exists && usersSnapshot.value is Map) {
+            final usersMap = usersSnapshot.value as Map;
+            supervisorUids = usersMap.keys.map((e) => e.toString()).toList();
+            debugPrint('📣 Fallback: Found ${supervisorUids.length} total users to notify');
+          }
+        } catch (fallbackError) {
+          debugPrint('⚠️ Fallback also failed: $fallbackError');
+        }
+      }
 
       for (String supervisorUid in supervisorUids) {
         final notificationData = {
@@ -722,6 +737,8 @@ class NotificationService {
                 'reportId': value['reportId'],
                 'status': value['status'],
                 'supervisorName': value['supervisorName'],
+                'severity': value['severity'] ?? 'Not Set',
+                'reporterName': value['reporterName'] ?? 'Unknown',
                 'timestamp': value['timestamp'] ?? '',
                 'read': value['read'] ?? false,
               });
@@ -964,26 +981,62 @@ class NotificationService {
   /// Get all supervisor UIDs from database
   Future<List<String>> getAllSupervisors() async {
     try {
+      debugPrint('🔍 Starting getAllSupervisors...');
       final snapshot = await _dbRef.child('users').get();
       final supervisors = <String>[];
 
-      if (snapshot.exists) {
-        final data = snapshot.value as Map?;
-        if (data != null) {
-          data.forEach((dynamic uid, dynamic userInfo) {
+      if (!snapshot.exists) {
+        debugPrint('ℹ️ No users data found in database');
+        return supervisors;
+      }
+
+      final data = snapshot.value;
+      debugPrint('🔍 Users data type: ${data.runtimeType}');
+      
+      if (data == null) {
+        debugPrint('ℹ️ Users data is null');
+        return supervisors;
+      }
+
+      // Try to treat it as a map
+      if (data is Map) {
+        debugPrint('📋 Processing users as Map with ${data.length} entries');
+        data.forEach((uid, userInfo) {
+          if (userInfo == null) return;
+          
+          try {
+            // Check type before accessing
             if (userInfo is Map) {
-              final role = (userInfo['role'] ?? '').toString().toLowerCase();
-              if (role == 'supervisor') {
+              final role = userInfo['role'] ?? '';
+              if (role.toString().toLowerCase() == 'supervisor') {
                 supervisors.add(uid.toString());
+                debugPrint('✅ Found supervisor: $uid');
               }
             }
-          });
-        }
+          } catch (e) {
+            debugPrint('⚠️ Error processing user $uid: $e');
+          }
+        });
+      } else {
+        debugPrint('⚠️ Users data is not a Map: ${data.runtimeType}');
       }
-      debugPrint('Found ${supervisors.length} supervisors');
+      
+      debugPrint('✅ Found ${supervisors.length} supervisors');
       return supervisors;
     } catch (e) {
-      debugPrint('Error getting supervisors: $e');
+      debugPrint('❌ Error getting supervisors: $e');
+      // Try fallback: get all users
+      try {
+        debugPrint('🔄 Attempting fallback approach...');
+        final snapshot = await _dbRef.child('users').get();
+        if (snapshot.exists && snapshot.value is Map) {
+          final users = (snapshot.value as Map).keys.map((k) => k.toString()).toList();
+          debugPrint('💫 Fallback: Found ${users.length} total users, notifying all');
+          return users;
+        }
+      } catch (fallbackError) {
+        debugPrint('⚠️ Fallback failed: $fallbackError');
+      }
       return [];
     }
   }
@@ -1031,6 +1084,196 @@ class NotificationService {
       debugPrint('✅ Note notification sent to $sentCount supervisors for report: $reportId');
     } catch (e) {
       debugPrint('❌ Error notifying supervisors on note added: $e');
+    }
+  }
+
+  /// Get all reporter UIDs from database
+  Future<List<String>> getAllReporters() async {
+    try {
+      debugPrint('🔍 Starting getAllReporters...');
+      final snapshot = await _dbRef.child('users').get();
+      final reporters = <String>[];
+
+      if (!snapshot.exists) {
+        debugPrint('ℹ️ No users data found in database');
+        return reporters;
+      }
+
+      final data = snapshot.value;
+      debugPrint('🔍 Users data type: ${data.runtimeType}');
+      
+      if (data == null) {
+        debugPrint('ℹ️ Users data is null');
+        return reporters;
+      }
+
+      // Try to treat it as a map
+      if (data is Map) {
+        debugPrint('📋 Processing users as Map with ${data.length} entries');
+        data.forEach((uid, userInfo) {
+          if (userInfo == null) return;
+          
+          try {
+            // Check type before accessing
+            if (userInfo is Map) {
+              final role = userInfo['role'] ?? '';
+              if (role.toString().toLowerCase() == 'reporter') {
+                reporters.add(uid.toString());
+                debugPrint('✅ Found reporter: $uid');
+              }
+            }
+          } catch (e) {
+            debugPrint('⚠️ Error processing user $uid: $e');
+          }
+        });
+      } else {
+        debugPrint('⚠️ Users data is not a Map: ${data.runtimeType}');
+      }
+      
+      debugPrint('✅ Found ${reporters.length} reporters');
+      return reporters;
+    } catch (e) {
+      debugPrint('❌ Error getting reporters: $e');
+      // Try fallback: get all users
+      try {
+        debugPrint('🔄 Attempting fallback approach...');
+        final snapshot = await _dbRef.child('users').get();
+        if (snapshot.exists && snapshot.value is Map) {
+          final users = (snapshot.value as Map).keys.map((k) => k.toString()).toList();
+          debugPrint('💫 Fallback: Found ${users.length} total users, notifying all');
+          return users;
+        }
+      } catch (fallbackError) {
+        debugPrint('⚠️ Fallback failed: $fallbackError');
+      }
+      return [];
+    }
+  }
+
+  /// Send notification to all reporters when a new report is submitted
+  Future<int> notifyAllReportersOnNewReport({
+    required String reportId,
+    required String reportType,
+    required String reportTitle,
+    required String reporterName,
+    required String severity,
+    required String? reporterUid, // UID of the person who created the report
+  }) async {
+    int notifiedCount = 0;
+    try {
+      debugPrint('📢 Fetching reporters to notify about new report...');
+      debugPrint('🔍 Current reporter UID: $reporterUid');
+      
+      // Get all reporters
+      final reporterUids = await getAllReporters();
+      debugPrint('Found ${reporterUids.length} reporters');
+      if (reporterUids.isEmpty) {
+        debugPrint('⚠️ No reporters found in database');
+      } else {
+        debugPrint('🔍 Reporter UIDs: $reporterUids');
+      }
+
+      for (String recipientUid in reporterUids) {
+        // Don't send notification to the reporter who created the report
+        if (recipientUid == reporterUid) {
+          continue;
+        }
+
+        final notificationData = {
+          'title': 'New System Report',
+          'body': '$reportType - $reportTitle by $reporterName (Severity: $severity)',
+          'reportId': reportId,
+          'reportType': reportType,
+          'severity': severity,
+          'reporterName': reporterName,
+          'timestamp': DateTime.now().toIso8601String(),
+          'read': false,
+        };
+
+        try {
+          await _dbRef
+              .child('userNotifications')
+              .child(recipientUid)
+              .push()
+              .set(notificationData);
+          
+          debugPrint('✅ Notification saved for reporter: $recipientUid');
+          notifiedCount++;
+        } catch (e) {
+          debugPrint('❌ Error notifying reporter $recipientUid: $e');
+        }
+      }
+      
+      debugPrint('✅ New report notification sent to $notifiedCount reporters');
+      return notifiedCount;
+    } catch (e) {
+      debugPrint('❌ Error notifying reporters of new report: $e');
+      return notifiedCount;
+    }
+  }
+
+  /// Send notification to all reporters when supervisor updates a report
+  Future<int> notifyAllReportersOnUpdate({
+    required String reportId,
+    required String reportType,
+    required String description,
+    required String status,
+    required String severity,
+    required String supervisorName,
+  }) async {
+    int notifiedCount = 0;
+    try {
+      debugPrint('📢 Fetching reporters to notify about update...');
+      
+      // Get all reporters
+      final reporterUids = await getAllReporters();
+      debugPrint('Found ${reporterUids.length} reporters for update notification');
+      if (reporterUids.isEmpty) {
+        debugPrint('⚠️ No reporters found to notify about update');
+      } else {
+        debugPrint('🔍 Reporter UIDs to notify: $reporterUids');
+      }
+
+      String notificationTitle = '';
+      String notificationBody = '';
+
+      // Create notification message based on what was updated
+      notificationTitle = 'Report Updated';
+      notificationBody = 'Supervisor $supervisorName updated $reportType report. Status: ${status.toUpperCase()}, Severity: ${severity.toUpperCase()}';
+
+      final notificationData = {
+        'title': notificationTitle,
+        'body': notificationBody,
+        'reportId': reportId,
+        'reportType': reportType,
+        'description': description,
+        'status': status,
+        'severity': severity,
+        'supervisorName': supervisorName,
+        'timestamp': DateTime.now().toIso8601String(),
+        'read': false,
+      };
+
+      for (String reporterUid in reporterUids) {
+        try {
+          await _dbRef
+              .child('userNotifications')
+              .child(reporterUid)
+              .push()
+              .set(notificationData);
+          
+          debugPrint('✅ Update notification saved for reporter: $reporterUid');
+          notifiedCount++;
+        } catch (e) {
+          debugPrint('❌ Error notifying reporter $reporterUid of update: $e');
+        }
+      }
+      
+      debugPrint('✅ Update notification sent to $notifiedCount reporters');
+      return notifiedCount;
+    } catch (e) {
+      debugPrint('❌ Error notifying reporters of update: $e');
+      return notifiedCount;
     }
   }
 }
