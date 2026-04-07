@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:cloudinary_public/cloudinary_public.dart';
 import 'package:geolocator/geolocator.dart';
 import 'notification_service.dart';
+import 'offline_report_queue_service.dart';
 import 'ui_components.dart';
 
 // Incident Report Form Widget
@@ -32,13 +33,17 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
   String? _autoLocationName;
   final ImagePicker _picker = ImagePicker();
   final NotificationService _notificationService = NotificationService();
+  final OfflineReportQueueService _offlineReportQueueService =
+      OfflineReportQueueService();
 
   @override
   void initState() {
     super.initState();
     // Initialize incident date to today
     _incidentDate = DateTime.now();
-    debugPrint('📅 Report form initialized with date: ${_incidentDate!.toIso8601String()}');
+    debugPrint(
+      '📅 Report form initialized with date: ${_incidentDate!.toIso8601String()}',
+    );
   }
 
   @override
@@ -123,7 +128,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Video upload failed. Make sure video is under 100MB.'),
+            content: Text(
+              'Video upload failed. Make sure video is under 100MB.',
+            ),
             duration: const Duration(seconds: 4),
           ),
         );
@@ -163,25 +170,27 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
       }
 
       // Get current position with timeout
-      final position = await Geolocator.getCurrentPosition(
-        timeLimit: const Duration(seconds: 10),
-      ).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () async {
-          return await Geolocator.getLastKnownPosition() ?? Position(
-            latitude: 0,
-            longitude: 0,
-            timestamp: DateTime.now(),
-            accuracy: 0,
-            altitude: 0,
-            altitudeAccuracy: 0,
-            heading: 0,
-            headingAccuracy: 0,
-            speed: 0,
-            speedAccuracy: 0,
+      final position =
+          await Geolocator.getCurrentPosition(
+            timeLimit: const Duration(seconds: 10),
+          ).timeout(
+            const Duration(seconds: 15),
+            onTimeout: () async {
+              return await Geolocator.getLastKnownPosition() ??
+                  Position(
+                    latitude: 0,
+                    longitude: 0,
+                    timestamp: DateTime.now(),
+                    accuracy: 0,
+                    altitude: 0,
+                    altitudeAccuracy: 0,
+                    heading: 0,
+                    headingAccuracy: 0,
+                    speed: 0,
+                    speedAccuracy: 0,
+                  );
+            },
           );
-        },
-      );
 
       if (mounted) {
         setState(() {
@@ -201,9 +210,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error getting location: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error getting location: $e')));
       }
     } finally {
       if (mounted) setState(() => _gettingLocation = false);
@@ -229,101 +238,79 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
     } catch (e) {
       debugPrint('❌ Error uploading image: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error uploading image: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error uploading image: $e')));
       }
       return null;
     }
+  }
+
+  Future<bool> _hasInternetConnection() async {
+    try {
+      final result = await InternetAddress.lookup(
+        'one.one.one.one',
+      ).timeout(const Duration(seconds: 3));
+      return result.isNotEmpty && result.first.rawAddress.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _queueIncidentForOffline(
+    Map<String, dynamic> incidentDraft,
+  ) async {
+    await _offlineReportQueueService.queueIncident(
+      incident: incidentDraft,
+      localImagePaths: _imageFiles.map((file) => file.path).toList(),
+      localVideoPath: _videoFile?.path,
+    );
   }
 
   Future<void> _submitIncident() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _submitting = true);
 
+    final incidentDraft = {
+      'reporterUid': widget.user.uid,
+      'reporterEmail': widget.user.email,
+      'type': _typeController.text.trim(),
+      'description': _descriptionController.text.trim(),
+      'date': _incidentDate != null
+          ? _incidentDate!.toIso8601String()
+          : DateTime.now().toIso8601String(),
+      'location': _locationController.text.trim(),
+      'latitude': _currentPosition?.latitude,
+      'longitude': _currentPosition?.longitude,
+      'autoLocationName': _autoLocationName,
+      'status': 'open',
+      'createdAt': DateTime.now().toIso8601String(),
+    };
+
     try {
-      // Upload multiple images
-      List<String> imageUrls = [];
-      if (_imageFiles.isNotEmpty) {
-        debugPrint('🖼️ Uploading ${_imageFiles.length} images...');
-        for (int i = 0; i < _imageFiles.length; i++) {
-          final url = await _uploadImageToCloudinary(_imageFiles[i]);
-          if (url != null) {
-            imageUrls.add(url);
-            debugPrint('  ✅ Image ${i + 1}/${_imageFiles.length} uploaded');
-          }
-        }
-      }
+      await _queueIncidentForOffline(incidentDraft);
 
-      String? videoUrl;
-      if (_videoFile != null) {
-        debugPrint('🎬 Uploading video...');
-        videoUrl = await _uploadVideoToCloudinary(_videoFile!);
-      }
-
-      final incident = {
-        'reporterUid': widget.user.uid,
-        'reporterEmail': widget.user.email,
-        'type': _typeController.text.trim(),
-        'description': _descriptionController.text.trim(),
-        'date': _incidentDate != null
-            ? _incidentDate!.toIso8601String()
-            : DateTime.now().toIso8601String(),
-        'location': _locationController.text.trim(),
-        'imageUrls': imageUrls,
-        'videoUrl': videoUrl,
-        'latitude': _currentPosition?.latitude,
-        'longitude': _currentPosition?.longitude,
-        'autoLocationName': _autoLocationName,
-        'status': 'open',
-        'createdAt': DateTime.now().toIso8601String(),
-      };
-
-      debugPrint('📝 Saving incident to Firebase...');
-      debugPrint('   - Incident Date: ${incident['date']}');
-      debugPrint('   - Created At: ${incident['createdAt']}');
-      debugPrint('   - Image URLs (${imageUrls.length}): $imageUrls');
-      debugPrint('   - Video URL: $videoUrl');
-
-      final newReportRef = await FirebaseDatabase.instance.ref('incidents').push();
-      await newReportRef.set(incident);
-      
-      debugPrint('✅ Incident saved successfully with ID: ${newReportRef.key}');
-
-      // Notify all supervisors about the new report
-      await _notificationService.notifySupervisorsOnNewReport(
-        reportId: newReportRef.key ?? 'unknown',
-        reportType: _typeController.text.trim(),
-        reportTitle: _typeController.text.trim(),
-        reporterName: widget.user.displayName ?? widget.user.email ?? 'Unknown Reporter',
-        severity: 'Not Set',
-      );
-
-      // Notify all reporters about the new report
-      await _notificationService.notifyAllReportersOnNewReport(
-        reportId: newReportRef.key ?? 'unknown',
-        reportType: _typeController.text.trim(),
-        reportTitle: _typeController.text.trim(),
-        reporterName: widget.user.displayName ?? widget.user.email ?? 'Unknown Reporter',
-        severity: 'Not Set',
-        reporterUid: widget.user.uid,
-      );
+      // Trigger sync in background so submit can return to dashboard immediately.
+      _offlineReportQueueService.syncPendingReports();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Incident reported successfully')),
-        );
+        final messenger = ScaffoldMessenger.of(context);
         Navigator.of(context).pop();
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Report submitted. Syncing in background.'),
+          ),
+        );
       }
     } catch (e) {
-      debugPrint('❌ Error submitting incident: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not submit report: $e')));
       }
-    } finally {
-      if (mounted) setState(() => _submitting = false);
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
     }
   }
 
@@ -369,15 +356,15 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                   Text(
                     'Incident Details',
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Provide comprehensive information about the incident',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey,
-                        ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
                   ),
                 ],
               ),
@@ -386,9 +373,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
               // Incident Type
               Text(
                 'Incident Type',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               ModernTextField(
@@ -405,9 +392,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
               // Description
               Text(
                 'Description',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               ModernTextField(
@@ -426,9 +413,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
               // Location
               Text(
                 'Location',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               Column(
@@ -489,9 +476,7 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                         decoration: BoxDecoration(
                           color: Colors.green.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: Colors.green.shade300,
-                          ),
+                          border: Border.all(color: Colors.green.shade300),
                         ),
                         child: Row(
                           children: [
@@ -504,9 +489,7 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                             Expanded(
                               child: Text(
                                 'Location auto-tagged: $_autoLocationName',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
+                                style: Theme.of(context).textTheme.bodySmall
                                     ?.copyWith(
                                       color: Colors.green.shade700,
                                       fontWeight: FontWeight.w500,
@@ -524,9 +507,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
               // Date Picker
               Text(
                 'Incident Date',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               GestureDetector(
@@ -558,22 +541,17 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                           children: [
                             Text(
                               'When did this occur?',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
+                              style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(color: Colors.grey),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               _incidentDate != null
-                                  ? _incidentDate!
-                                      .toLocal()
-                                      .toString()
-                                      .split(' ')[0]
+                                  ? _incidentDate!.toLocal().toString().split(
+                                      ' ',
+                                    )[0]
                                   : 'Select a date',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyLarge
+                              style: Theme.of(context).textTheme.bodyLarge
                                   ?.copyWith(fontWeight: FontWeight.w600),
                             ),
                           ],
@@ -593,9 +571,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
               // Image Section
               Text(
                 'Evidence (Optional)',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               if (_imageFiles.isEmpty)
@@ -607,7 +585,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              vertical: 16, horizontal: 12),
+                            vertical: 16,
+                            horizontal: 12,
+                          ),
                           decoration: BoxDecoration(
                             border: Border.all(
                               color: Colors.blue.shade300,
@@ -627,9 +607,7 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                               const SizedBox(height: 8),
                               Text(
                                 'From Gallery',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
+                                style: Theme.of(context).textTheme.bodySmall
                                     ?.copyWith(
                                       color: Colors.blue,
                                       fontWeight: FontWeight.w600,
@@ -647,7 +625,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              vertical: 16, horizontal: 12),
+                            vertical: 16,
+                            horizontal: 12,
+                          ),
                           decoration: BoxDecoration(
                             border: Border.all(
                               color: Colors.green.shade300,
@@ -667,9 +647,7 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                               const SizedBox(height: 8),
                               Text(
                                 'Take Photo',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
+                                style: Theme.of(context).textTheme.bodySmall
                                     ?.copyWith(
                                       color: Colors.green,
                                       fontWeight: FontWeight.w600,
@@ -689,11 +667,12 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                     GridView.builder(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                      ),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 12,
+                          ),
                       itemCount: _imageFiles.length,
                       itemBuilder: (context, index) {
                         return Stack(
@@ -745,7 +724,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                           onTap: _pickImage,
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                                vertical: 10, horizontal: 16),
+                              vertical: 10,
+                              horizontal: 16,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.blue.withOpacity(0.1),
                               borderRadius: BorderRadius.circular(8),
@@ -777,9 +758,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                         const SizedBox(width: 8),
                         Text(
                           '${_imageFiles.length} image${_imageFiles.length != 1 ? 's' : ''} selected',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.grey,
-                              ),
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodySmall?.copyWith(color: Colors.grey),
                         ),
                       ],
                     ),
@@ -790,9 +771,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
               // Video Section
               Text(
                 'Video Evidence (Optional)',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               if (_videoFile == null)
@@ -804,7 +785,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              vertical: 16, horizontal: 12),
+                            vertical: 16,
+                            horizontal: 12,
+                          ),
                           decoration: BoxDecoration(
                             border: Border.all(
                               color: Colors.orange.shade300,
@@ -824,9 +807,7 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                               const SizedBox(height: 8),
                               Text(
                                 'From Gallery',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
+                                style: Theme.of(context).textTheme.bodySmall
                                     ?.copyWith(
                                       color: Colors.orange,
                                       fontWeight: FontWeight.w600,
@@ -844,7 +825,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              vertical: 16, horizontal: 12),
+                            vertical: 16,
+                            horizontal: 12,
+                          ),
                           decoration: BoxDecoration(
                             border: Border.all(
                               color: Colors.red.shade300,
@@ -864,9 +847,7 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                               const SizedBox(height: 8),
                               Text(
                                 'Record Video',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
+                                style: Theme.of(context).textTheme.bodySmall
                                     ?.copyWith(
                                       color: Colors.red,
                                       fontWeight: FontWeight.w600,
@@ -971,9 +952,7 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                                   ),
                                   Text(
                                     'Video evidence for the incident',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall
+                                    style: Theme.of(context).textTheme.bodySmall
                                         ?.copyWith(color: Colors.grey),
                                   ),
                                 ],

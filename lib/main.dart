@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'notification_service.dart';
+import 'offline_report_queue_service.dart';
 import 'wrapper.dart';
 
 @pragma('vm:entry-point')
@@ -47,30 +48,28 @@ void main() async {
     if (kIsWeb) {
       await Firebase.initializeApp(
         options: const FirebaseOptions(
-            apiKey: "AIzaSyBqZml7mim57mnAINgNgwfQHtX1yuy3JwM",
-            authDomain: "users-3f3bd.firebaseapp.com",
-            databaseURL: "https://users-3f3bd-default-rtdb.firebaseio.com",
-            projectId: "users-3f3bd",
-            storageBucket: "users-3f3bd.firebasestorage.app",
-            messagingSenderId: "748983652775",
-            appId: "1:748983652775:web:3f3e023e596fd70897a682",
-            measurementId: "G-42B01W22VJ",
+          apiKey: "AIzaSyBqZml7mim57mnAINgNgwfQHtX1yuy3JwM",
+          authDomain: "users-3f3bd.firebaseapp.com",
+          databaseURL: "https://users-3f3bd-default-rtdb.firebaseio.com",
+          projectId: "users-3f3bd",
+          storageBucket: "users-3f3bd.firebasestorage.app",
+          messagingSenderId: "748983652775",
+          appId: "1:748983652775:web:3f3e023e596fd70897a682",
+          measurementId: "G-42B01W22VJ",
         ),
       );
     } else {
       await Firebase.initializeApp();
     }
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    await OfflineReportQueueService().init();
     isFirebaseReady = true;
   } catch (e) {
     errorMessage = e.toString();
     debugPrint('Firebase Initialization Error: $e');
   }
 
-  runApp(MyApp(
-    isFirebaseReady: isFirebaseReady,
-    error: errorMessage,
-  ));
+  runApp(MyApp(isFirebaseReady: isFirebaseReady, error: errorMessage));
 }
 
 class MyApp extends StatelessWidget {
@@ -84,7 +83,10 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'InciTrack',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo, brightness: Brightness.light),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.indigo,
+          brightness: Brightness.light,
+        ),
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFFF6F7FB),
         visualDensity: VisualDensity.adaptivePlatformDensity,
@@ -95,7 +97,9 @@ class MyApp extends StatelessWidget {
         ),
         cardTheme: CardThemeData(
           elevation: 3,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
           color: Colors.white,
         ),
@@ -103,7 +107,9 @@ class MyApp extends StatelessWidget {
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.indigo.shade600,
             foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             elevation: 3,
           ),
@@ -112,10 +118,16 @@ class MyApp extends StatelessWidget {
           style: TextButton.styleFrom(foregroundColor: Colors.indigo.shade600),
         ),
         inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
           filled: true,
           fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 16,
+          ),
         ),
         textTheme: const TextTheme(
           displayLarge: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
@@ -129,34 +141,41 @@ class MyApp extends StatelessWidget {
       home: isFirebaseReady
           ? const Wrapper()
           : Scaffold(
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, color: Colors.red, size: 80),
-                const SizedBox(height: 20),
-                const Text(
-                  'Initialization Error',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              body: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.error_outline,
+                        color: Colors.red,
+                        size: 80,
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Initialization Error',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        error ?? 'An unknown error occurred during startup.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.grey),
+                      ),
+                      const SizedBox(height: 30),
+                      ElevatedButton(
+                        onPressed: () => main(),
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  error ?? 'An unknown error occurred during startup.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 30),
-                ElevatedButton(
-                  onPressed: () => main(),
-                  child: const Text('Retry'),
-                ),
-              ],
+              ),
             ),
-          ),
-        ),
-      ),
     );
   }
 }

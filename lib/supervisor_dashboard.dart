@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -6,6 +8,7 @@ import 'supervisor_reports_list.dart';
 import 'supervisor_report_detail.dart';
 import 'supervisor_notifications_viewer.dart';
 import 'notification_service.dart';
+import 'offline_report_queue_service.dart';
 
 class SupervisorDashboard extends StatefulWidget {
   final User user;
@@ -18,29 +21,37 @@ class SupervisorDashboard extends StatefulWidget {
 class _SupervisorDashboardState extends State<SupervisorDashboard> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   final NotificationService _notificationService = NotificationService();
+  final OfflineReportQueueService _offlineQueueService =
+      OfflineReportQueueService();
   int _touchedIndex = -1;
   bool _isValidSupervisor = true;
 
   @override
   void initState() {
     super.initState();
+    _dbRef.child('incidents').keepSynced(true);
     _validateSupervisorRole();
-    
+
     // Listen for notification taps to open incident reports
     _notificationService.notificationTapStream.listen((notificationData) {
       _handleNotificationTap(notificationData);
     });
   }
 
-  Future<void> _handleNotificationTap(Map<String, dynamic> notificationData) async {
+  Future<void> _handleNotificationTap(
+    Map<String, dynamic> notificationData,
+  ) async {
     try {
       final reportId = notificationData['reportId'];
       if (reportId != null && reportId.toString().isNotEmpty && mounted) {
         // Fetch incident details
-        final snapshot = await _dbRef.child('incidents').child(reportId.toString()).get();
+        final snapshot = await _dbRef
+            .child('incidents')
+            .child(reportId.toString())
+            .get();
         if (snapshot.exists && mounted) {
           final reportData = Map<String, dynamic>.from(snapshot.value as Map);
-          
+
           // Navigate to report detail
           Navigator.of(context).push(
             MaterialPageRoute(
@@ -59,10 +70,15 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
 
   Future<void> _validateSupervisorRole() async {
     try {
-      final userRole = await _dbRef.child('users').child(widget.user.uid).child('role').get();
+      final userRole = await _dbRef
+          .child('users')
+          .child(widget.user.uid)
+          .child('role')
+          .get();
       if (!mounted) return;
       setState(() {
-        _isValidSupervisor = (userRole.value?.toString().toLowerCase() == 'supervisor');
+        _isValidSupervisor =
+            (userRole.value?.toString().toLowerCase() == 'supervisor');
       });
       if (!_isValidSupervisor) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -81,23 +97,26 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
   }
 
   Stream<Map<String, dynamic>> _getReportStatsStream() {
-    return _dbRef.child('incidents').onValue.map((event) {
-      if (!event.snapshot.exists) {
-        return {
-          'total': 0,
-          'open': 0,
-          'active': 0,
-          'closed': 0,
-          'high': 0,
-          'medium': 0,
-          'low': 0,
-          'critical': 0,
-          'notSet': 0,
-          'recent': [],
-          'overdue': [],
-        };
-      }
+    final controller = StreamController<Map<String, dynamic>>();
 
+    Map<String, dynamic> baseStats = {
+      'total': 0,
+      'open': 0,
+      'active': 0,
+      'closed': 0,
+      'high': 0,
+      'medium': 0,
+      'low': 0,
+      'critical': 0,
+      'notSet': 0,
+      'recent': <Map<String, dynamic>>[],
+      'overdue': <Map<String, dynamic>>[],
+      'resolutionRate': 0.0,
+      'openIncidentRate': 0.0,
+      'dailyTrends': <String, int>{},
+    };
+
+    Map<String, dynamic> calculateBaseStats(Map<dynamic, dynamic>? data) {
       int total = 0;
       int open = 0;
       int active = 0;
@@ -107,20 +126,18 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
       int low = 0;
       int critical = 0;
       int notSet = 0;
-      int now = DateTime.now().millisecondsSinceEpoch;
-      Map<String, int> dailyIncidents = {};
+      final int now = DateTime.now().millisecondsSinceEpoch;
+      final Map<String, int> dailyIncidents = {};
       List<Map<String, dynamic>> recentIncidents = [];
       List<Map<String, dynamic>> overdueIncidents = [];
 
-      final data = event.snapshot.value as Map?;
       if (data != null) {
         data.forEach((key, value) {
           if (value is Map) {
             total++;
             final status = (value['status'] ?? 'open').toString().toLowerCase();
             final severity = (value['severity'] ?? '').toString().toLowerCase();
-            
-            // Count by status
+
             if (status == 'closed') {
               closed++;
             } else if (status == 'active') {
@@ -128,8 +145,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
             } else {
               open++;
             }
-            
-            // Count by severity
+
             if (severity == 'high') {
               high++;
             } else if (severity == 'low') {
@@ -141,19 +157,21 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
             } else {
               notSet++;
             }
-            
-            // Extract reporter name - simplified with cleaner fallbacks
-            var reporterName = _extractReporterName(value);
-            
-            // Extract image URL
-            var imageUrl = value['imageUrl'] ?? '';
 
-            // Collect recent incidents
-            var ts = value['timestamp'] ?? value['createdAt'];
-            int timestamp = ts is int ? ts : (int.tryParse(ts.toString()) ?? 0);
+            final reporterName = _extractReporterName(value);
+            final imageUrl = value['imageUrl'] ?? '';
+            final ts = value['timestamp'] ?? value['createdAt'];
+            final int timestamp = ts is int
+                ? ts
+                : (int.tryParse(ts.toString()) ?? 0);
+
             recentIncidents.add({
               'id': key,
-              'title': value['title'] ?? value['type'] ?? value['incidentType'] ?? 'Untitled',
+              'title':
+                  value['title'] ??
+                  value['type'] ??
+                  value['incidentType'] ??
+                  'Untitled',
               'description': value['description'] ?? '',
               'status': status,
               'priority': severity,
@@ -163,17 +181,25 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
               'reporterEmail': value['reporterEmail'] ?? 'N/A',
               'location': value['location'] ?? 'N/A',
               'category': value['category'] ?? value['type'] ?? 'Incident',
-              'type': value['type'] ?? value['incidentType'] ?? value['category'] ?? 'Incident',
+              'type':
+                  value['type'] ??
+                  value['incidentType'] ??
+                  value['category'] ??
+                  'Incident',
               'imageUrl': imageUrl,
               'attachments': value['attachments'] ?? '',
               'createdAt': value['createdAt'] ?? value['timestamp'] ?? '',
             });
 
-            // Identify overdue/critical incidents
-            if (status != 'closed' && (severity == 'critical' || severity == 'high')) {
+            if (status != 'closed' &&
+                (severity == 'critical' || severity == 'high')) {
               overdueIncidents.add({
                 'id': key,
-                'title': value['title'] ?? value['type'] ?? value['incidentType'] ?? 'Untitled',
+                'title':
+                    value['title'] ??
+                    value['type'] ??
+                    value['incidentType'] ??
+                    'Untitled',
                 'description': value['description'] ?? '',
                 'status': status,
                 'severity': severity,
@@ -183,7 +209,11 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                 'reporterEmail': value['reporterEmail'] ?? 'N/A',
                 'location': value['location'] ?? 'N/A',
                 'category': value['category'] ?? value['type'] ?? 'Incident',
-                'type': value['type'] ?? value['incidentType'] ?? value['category'] ?? 'Incident',
+                'type':
+                    value['type'] ??
+                    value['incidentType'] ??
+                    value['category'] ??
+                    'Incident',
                 'imageUrl': imageUrl,
                 'attachments': value['attachments'] ?? '',
                 'createdAt': value['createdAt'] ?? value['timestamp'] ?? '',
@@ -193,11 +223,9 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
         });
       }
 
-      // Sort by timestamp (most recent first), then by date string if no timestamp
       recentIncidents.sort((a, b) {
-        int timestampA = a['timestamp'] as int? ?? 0;
-        int timestampB = b['timestamp'] as int? ?? 0;
-        
+        final int timestampA = a['timestamp'] as int? ?? 0;
+        final int timestampB = b['timestamp'] as int? ?? 0;
         if (timestampA != 0 && timestampB != 0) {
           return timestampB.compareTo(timestampA);
         }
@@ -205,64 +233,46 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
       });
       recentIncidents = recentIncidents.take(3).toList();
 
-      // Sort overdue by severity (critical first) then by timestamp
       overdueIncidents.sort((a, b) {
-        if (a['severity'] == 'critical' && b['severity'] != 'critical') return -1;
-        if (a['severity'] != 'critical' && b['severity'] == 'critical') return 1;
-        int timestampA = a['timestamp'] as int? ?? 0;
-        int timestampB = b['timestamp'] as int? ?? 0;
+        if (a['severity'] == 'critical' && b['severity'] != 'critical') {
+          return -1;
+        }
+        if (a['severity'] != 'critical' && b['severity'] == 'critical') {
+          return 1;
+        }
+        final int timestampA = a['timestamp'] as int? ?? 0;
+        final int timestampB = b['timestamp'] as int? ?? 0;
         return timestampB.compareTo(timestampA);
       });
       overdueIncidents = overdueIncidents.take(5).toList();
 
-      // Calculate KPI metrics
-      double resolutionRate = total > 0 ? (closed / total * 100) : 0;
-      double openIncidentRate = total > 0 ? ((open + active) / total * 100) : 0;
-      
-      // Calculate daily incident trends for last 7 days
+      final double resolutionRate = total > 0 ? (closed / total * 100) : 0;
+      final double openIncidentRate = total > 0
+          ? ((open + active) / total * 100)
+          : 0;
+
       for (int i = 6; i >= 0; i--) {
         final date = DateTime.now().subtract(Duration(days: i));
-        final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+        final dateStr =
+            '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
         dailyIncidents[dateStr] = 0;
       }
-      
+
       data?.forEach((key, value) {
         if (value is Map) {
-          final status = (value['status'] ?? 'open').toString().toLowerCase();
-          if (status == 'closed') {
-            // Get creation time
-            var createdTimestamp = value['timestamp'] ?? value['createdAt'] ?? 0;
-            int createdTime = createdTimestamp is int 
-              ? createdTimestamp 
-              : (int.tryParse(createdTimestamp.toString()) ?? 0);
-            
-            // Get closure time (check multiple possible field names)
-            var closedTimestamp = value['closedAt'] ?? 
-                                 value['resolvedAt'] ?? 
-                                 value['updatedAt'] ?? 
-                                 value['statusChangedAt'] ?? 
-                                 now;
-            int closedTime = closedTimestamp is int 
-              ? closedTimestamp 
-              : (int.tryParse(closedTimestamp.toString()) ?? now);
-            
-            // Only count if we have valid times and closure time is after creation time
-            if (createdTime > 0 && closedTime >= createdTime) {
-              // Response time tracking for analytics
-            }
-          }
-          
-          // Count incident by creation date
-          var tsValue = value['timestamp'] ?? value['createdAt'];
-          int timestamp = tsValue is int ? tsValue : (int.tryParse(tsValue.toString()) ?? now);
+          final tsValue = value['timestamp'] ?? value['createdAt'];
+          final int timestamp = tsValue is int
+              ? tsValue
+              : (int.tryParse(tsValue.toString()) ?? now);
           final incidentDate = DateTime.fromMillisecondsSinceEpoch(timestamp);
-          final dateStr = '${incidentDate.year}-${incidentDate.month.toString().padLeft(2, '0')}-${incidentDate.day.toString().padLeft(2, '0')}';
+          final dateStr =
+              '${incidentDate.year}-${incidentDate.month.toString().padLeft(2, '0')}-${incidentDate.day.toString().padLeft(2, '0')}';
           if (dailyIncidents.containsKey(dateStr)) {
             dailyIncidents[dateStr] = (dailyIncidents[dateStr] ?? 0) + 1;
           }
         }
       });
-      
+
       return {
         'total': total,
         'open': open,
@@ -279,7 +289,83 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
         'openIncidentRate': openIncidentRate,
         'dailyTrends': dailyIncidents,
       };
+    }
+
+    Future<void> emitMergedStats() async {
+      final pendingCount = await _offlineQueueService.getPendingCountGlobal();
+      final baseTotal = baseStats['total'] as int? ?? 0;
+      final baseOpen = baseStats['open'] as int? ?? 0;
+      final baseActive = baseStats['active'] as int? ?? 0;
+      final mergedTotal = baseTotal + pendingCount;
+      final mergedOpen = baseOpen + pendingCount;
+
+      final merged = Map<String, dynamic>.from(baseStats);
+      merged['total'] = mergedTotal;
+      merged['open'] = mergedOpen;
+      merged['notSet'] = (baseStats['notSet'] as int? ?? 0) + pendingCount;
+      merged['openIncidentRate'] = mergedTotal > 0
+          ? ((mergedOpen + baseActive) / mergedTotal * 100)
+          : 0.0;
+      merged['resolutionRate'] = mergedTotal > 0
+          ? ((baseStats['closed'] as int? ?? 0) / mergedTotal * 100)
+          : 0.0;
+
+      controller.add(merged);
+    }
+
+    unawaited(() async {
+      try {
+        baseStats = await _offlineQueueService.getCachedSupervisorStats();
+      } catch (_) {
+        baseStats = {
+          'total': 0,
+          'open': 0,
+          'active': 0,
+          'closed': 0,
+          'high': 0,
+          'medium': 0,
+          'low': 0,
+          'critical': 0,
+          'notSet': 0,
+          'recent': <Map<String, dynamic>>[],
+          'overdue': <Map<String, dynamic>>[],
+          'resolutionRate': 0.0,
+          'openIncidentRate': 0.0,
+          'dailyTrends': <String, int>{},
+        };
+      }
+      await emitMergedStats();
+    }());
+
+    final incidentsSub = _dbRef
+        .child('incidents')
+        .onValue
+        .listen(
+          (event) async {
+            final raw = event.snapshot.value;
+            if (raw is Map) {
+              baseStats = calculateBaseStats(raw);
+              await _offlineQueueService.cacheSupervisorStats(baseStats);
+            }
+            await emitMergedStats();
+          },
+          onError: (_) async {
+            await emitMergedStats();
+          },
+        );
+
+    final pendingSub = _offlineQueueService.watchPendingCountGlobal().listen((
+      _,
+    ) async {
+      await emitMergedStats();
     });
+
+    controller.onCancel = () async {
+      await incidentsSub.cancel();
+      await pendingSub.cancel();
+    };
+
+    return controller.stream;
   }
 
   @override
@@ -294,7 +380,9 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
         actions: [
           // Notifications Button with Badge
           StreamBuilder<int>(
-            stream: _notificationService.getUnreadNotificationCount(widget.user.uid),
+            stream: _notificationService.getUnreadNotificationCount(
+              widget.user.uid,
+            ),
             builder: (context, snapshot) {
               final unreadCount = snapshot.data ?? 0;
               return Stack(
@@ -304,7 +392,8 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (context) => SupervisorNotificationsViewer(user: widget.user),
+                          builder: (context) =>
+                              SupervisorNotificationsViewer(user: widget.user),
                         ),
                       );
                     },
@@ -343,23 +432,28 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
             tooltip: 'Sign out',
             onPressed: () async {
               // Show confirmation dialog before logout
-              final shouldLogout = await showDialog<bool>(
-                context: context,
-                builder: (BuildContext dialogContext) => AlertDialog(
-                  title: const Text('Sign Out'),
-                  content: const Text('Are you sure you want to sign out?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(dialogContext, false),
-                      child: const Text('Cancel'),
+              final shouldLogout =
+                  await showDialog<bool>(
+                    context: context,
+                    builder: (BuildContext dialogContext) => AlertDialog(
+                      title: const Text('Sign Out'),
+                      content: const Text('Are you sure you want to sign out?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Cancel'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          child: const Text(
+                            'Sign Out',
+                            style: TextStyle(color: Colors.red),
+                          ),
+                        ),
+                      ],
                     ),
-                    TextButton(
-                      onPressed: () => Navigator.pop(dialogContext, true),
-                      child: const Text('Sign Out', style: TextStyle(color: Colors.red)),
-                    ),
-                  ],
-                ),
-              ) ?? false;
+                  ) ??
+                  false;
 
               if (shouldLogout && context.mounted) {
                 await FirebaseAuth.instance.signOut();
@@ -374,10 +468,21 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
       ),
       body: StreamBuilder<Map<String, dynamic>>(
         stream: _getReportStatsStream(),
+        initialData: const {
+          'total': 0,
+          'open': 0,
+          'active': 0,
+          'closed': 0,
+          'high': 0,
+          'medium': 0,
+          'low': 0,
+          'critical': 0,
+          'notSet': 0,
+          'overdue': <dynamic>[],
+          'resolutionRate': 0.0,
+          'openIncidentRate': 0.0,
+        },
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
           if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           }
@@ -445,14 +550,18 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                               children: [
                                 Text(
                                   'Welcome Back',
-                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
                                         color: Colors.white.withOpacity(0.9),
                                         fontWeight: FontWeight.w500,
                                       ),
                                 ),
                                 Text(
-                                  widget.user.displayName ?? widget.user.email?.split('@').first ?? 'Supervisor',
-                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  widget.user.displayName ??
+                                      widget.user.email?.split('@').first ??
+                                      'Supervisor',
+                                  style: Theme.of(context).textTheme.titleMedium
+                                      ?.copyWith(
                                         color: Colors.white,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -466,9 +575,9 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                       Text(
                         'Monitor and manage all incident reports in real-time',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.white.withOpacity(0.85),
-                              fontWeight: FontWeight.w400,
-                            ),
+                          color: Colors.white.withOpacity(0.85),
+                          fontWeight: FontWeight.w400,
+                        ),
                       ),
                     ],
                   ),
@@ -482,12 +591,15 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                     Text(
                       'Performance Metrics',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey.shade900,
-                          ),
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade900,
+                      ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.blue.shade50,
                         borderRadius: BorderRadius.circular(8),
@@ -495,9 +607,9 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                       child: Text(
                         'Today',
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: Colors.blue.shade700,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          color: Colors.blue.shade700,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ],
@@ -515,7 +627,10 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                     Container(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: [Colors.green.shade500, Colors.green.shade600],
+                          colors: [
+                            Colors.green.shade500,
+                            Colors.green.shade600,
+                          ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
@@ -564,7 +679,10 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                               children: [
                                 Text(
                                   '${resolutionRate.toStringAsFixed(1)}%',
-                                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineSmall
+                                      ?.copyWith(
                                         color: Colors.white,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -572,7 +690,8 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                 const SizedBox(height: 4),
                                 Text(
                                   'Resolution Rate',
-                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
                                         color: Colors.white.withOpacity(0.8),
                                         fontWeight: FontWeight.w500,
                                       ),
@@ -588,7 +707,10 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                     Container(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: [Colors.orange.shade500, Colors.orange.shade600],
+                          colors: [
+                            Colors.orange.shade500,
+                            Colors.orange.shade600,
+                          ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
@@ -637,7 +759,10 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                               children: [
                                 Text(
                                   '${openIncidentRate.toStringAsFixed(1)}%',
-                                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineSmall
+                                      ?.copyWith(
                                         color: Colors.white,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -645,7 +770,8 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                 const SizedBox(height: 4),
                                 Text(
                                   'Open Rate',
-                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
                                         color: Colors.white.withOpacity(0.8),
                                         fontWeight: FontWeight.w500,
                                       ),
@@ -661,7 +787,10 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                     Container(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: [Colors.purple.shade500, Colors.purple.shade600],
+                          colors: [
+                            Colors.purple.shade500,
+                            Colors.purple.shade600,
+                          ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
@@ -710,7 +839,10 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                               children: [
                                 Text(
                                   '$totalReports',
-                                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineSmall
+                                      ?.copyWith(
                                         color: Colors.white,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -718,7 +850,8 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                 const SizedBox(height: 4),
                                 Text(
                                   'Total Reports',
-                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
                                         color: Colors.white.withOpacity(0.8),
                                         fontWeight: FontWeight.w500,
                                       ),
@@ -783,7 +916,10 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                               children: [
                                 Text(
                                   '$criticalPriority',
-                                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineSmall
+                                      ?.copyWith(
                                         color: Colors.white,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -791,7 +927,8 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                 const SizedBox(height: 4),
                                 Text(
                                   'Critical',
-                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
                                         color: Colors.white.withOpacity(0.8),
                                         fontWeight: FontWeight.w500,
                                       ),
@@ -851,7 +988,10 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                 children: [
                                   Text(
                                     'IMMEDIATE ATTENTION REQUIRED',
-                                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelMedium
+                                        ?.copyWith(
                                           color: Colors.white,
                                           fontWeight: FontWeight.bold,
                                           letterSpacing: 0.5,
@@ -859,7 +999,8 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                   ),
                                   Text(
                                     '${overdueIncidents.length} critical incident${overdueIncidents.length > 1 ? 's' : ''} need action',
-                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
                                           color: Colors.white.withOpacity(0.9),
                                         ),
                                   ),
@@ -872,7 +1013,9 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                         ...overdueIncidents.map((incident) {
                           final inc = incident as Map<String, dynamic>;
                           final severity = inc['severity'] ?? 'high';
-                          final severityColor = severity == 'critical' ? Colors.yellow.shade400 : Colors.orange.shade400;
+                          final severityColor = severity == 'critical'
+                              ? Colors.yellow.shade400
+                              : Colors.orange.shade400;
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 8),
                             child: GestureDetector(
@@ -881,10 +1024,11 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) => SupervisorReportDetail(
-                                        reportId: inc['id'],
-                                        report: inc,
-                                      ),
+                                      builder: (context) =>
+                                          SupervisorReportDetail(
+                                            reportId: inc['id'],
+                                            report: inc,
+                                          ),
                                     ),
                                   );
                                 }
@@ -902,11 +1046,15 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           inc['title'] ?? 'Untitled',
-                                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium
+                                              ?.copyWith(
                                                 color: Colors.white,
                                                 fontWeight: FontWeight.w600,
                                               ),
@@ -915,8 +1063,13 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                         ),
                                         Text(
                                           'Type: ${(inc['type'] ?? 'Incident').toUpperCase()}',
-                                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                                color: Colors.white.withOpacity(0.85),
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                                color: Colors.white.withOpacity(
+                                                  0.85,
+                                                ),
                                               ),
                                         ),
                                       ],
@@ -935,8 +1088,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                       ],
                     ),
                   ),
-                if (overdueIncidents.isNotEmpty)
-                  const SizedBox(height: 24),
+                if (overdueIncidents.isNotEmpty) const SizedBox(height: 24),
 
                 // Real-time Incidents Section - with enhanced styling
                 Row(
@@ -945,12 +1097,15 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                     Text(
                       'Recent Incidents',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey.shade900,
-                          ),
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey.shade900,
+                      ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.blue.shade50,
                         borderRadius: BorderRadius.circular(8),
@@ -958,9 +1113,9 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                       child: Text(
                         'View All',
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: Colors.blue.shade700,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          color: Colors.blue.shade700,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ],
@@ -990,30 +1145,31 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                 const SizedBox(height: 8),
                                 Text(
                                   'No recent incidents',
-                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                        color: Colors.grey.shade600,
-                                      ),
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(color: Colors.grey.shade600),
                                 ),
                               ],
                             ),
                           ),
                         )
                       else
-                        ...((stats['recent'] as List<dynamic>? ?? []).map((inc) {
+                        ...((stats['recent'] as List<dynamic>? ?? []).map((
+                          inc,
+                        ) {
                           final incident = inc as Map<String, dynamic>;
                           final severity = incident['priority'] ?? 'low';
                           final severityColor = severity == 'critical'
                               ? Colors.red
                               : severity == 'high'
-                                  ? Colors.deepOrange
-                                  : severity == 'medium'
-                                      ? Colors.orange
-                                      : Colors.blue;
+                              ? Colors.deepOrange
+                              : severity == 'medium'
+                              ? Colors.orange
+                              : Colors.blue;
                           final statusColor = incident['status'] == 'open'
                               ? Colors.amber
                               : incident['status'] == 'active'
-                                  ? Colors.orange
-                                  : Colors.green;
+                              ? Colors.orange
+                              : Colors.green;
 
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 12),
@@ -1023,10 +1179,11 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) => SupervisorReportDetail(
-                                        reportId: incident['id'],
-                                        report: incident,
-                                      ),
+                                      builder: (context) =>
+                                          SupervisorReportDetail(
+                                            reportId: incident['id'],
+                                            report: incident,
+                                          ),
                                     ),
                                   );
                                 }
@@ -1053,12 +1210,16 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                   children: [
                                     // Title and Type
                                     Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
                                       children: [
                                         Expanded(
                                           child: Text(
                                             incident['title'] ?? 'Untitled',
-                                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodyMedium
+                                                ?.copyWith(
                                                   fontWeight: FontWeight.bold,
                                                   color: Colors.black87,
                                                 ),
@@ -1067,14 +1228,24 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                           ),
                                         ),
                                         Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
                                           decoration: BoxDecoration(
-                                            color: severityColor.withOpacity(0.15),
-                                            borderRadius: BorderRadius.circular(12),
+                                            color: severityColor.withOpacity(
+                                              0.15,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
                                           ),
                                           child: Text(
                                             severity.toUpperCase(),
-                                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .labelSmall
+                                                ?.copyWith(
                                                   color: severityColor,
                                                   fontWeight: FontWeight.bold,
                                                   fontSize: 10,
@@ -1086,43 +1257,60 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                     const SizedBox(height: 6),
                                     Text(
                                       'Type: ${incident['type'] ?? 'Unknown'}',
-                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                            color: Colors.grey[600],
-                                          ),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(color: Colors.grey[600]),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                     const SizedBox(height: 8),
-                                    
+
                                     // Status and Info Pills
                                     Row(
                                       children: [
                                         Expanded(
                                           child: Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 4,
+                                            ),
                                             decoration: BoxDecoration(
-                                              color: statusColor.withOpacity(0.15),
-                                              borderRadius: BorderRadius.circular(16),
+                                              color: statusColor.withOpacity(
+                                                0.15,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
                                             ),
                                             child: Row(
-                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
                                               children: [
                                                 Icon(
                                                   incident['status'] == 'closed'
                                                       ? Icons.check_circle
-                                                      : incident['status'] == 'active'
-                                                          ? Icons.schedule
-                                                          : Icons.radio_button_unchecked,
+                                                      : incident['status'] ==
+                                                            'active'
+                                                      ? Icons.schedule
+                                                      : Icons
+                                                            .radio_button_unchecked,
                                                   color: statusColor,
                                                   size: 14,
                                                 ),
                                                 const SizedBox(width: 4),
                                                 Text(
-                                                  incident['status']?.toString().toUpperCase() ?? 'OPEN',
-                                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                                    color: statusColor,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
+                                                  incident['status']
+                                                          ?.toString()
+                                                          .toUpperCase() ??
+                                                      'OPEN',
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .labelSmall
+                                                      ?.copyWith(
+                                                        color: statusColor,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                      ),
                                                 ),
                                               ],
                                             ),
@@ -1131,30 +1319,41 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                         const SizedBox(width: 6),
                                         Expanded(
                                           child: Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 4,
+                                            ),
                                             decoration: BoxDecoration(
-                                              color: severityColor.withOpacity(0.15),
-                                              borderRadius: BorderRadius.circular(16),
+                                              color: severityColor.withOpacity(
+                                                0.15,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
                                             ),
                                             child: Row(
-                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
                                               children: [
                                                 Icon(
                                                   severity == 'critical'
                                                       ? Icons.error
                                                       : severity == 'high'
-                                                          ? Icons.warning
-                                                          : Icons.info,
+                                                      ? Icons.warning
+                                                      : Icons.info,
                                                   color: severityColor,
                                                   size: 14,
                                                 ),
                                                 const SizedBox(width: 4),
                                                 Text(
                                                   severity.toUpperCase(),
-                                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                                    color: severityColor,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .labelSmall
+                                                      ?.copyWith(
+                                                        color: severityColor,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                      ),
                                                 ),
                                               ],
                                             ),
@@ -1177,8 +1376,8 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                 Text(
                   'Incident Trends (Last 7 Days)',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Container(
@@ -1188,15 +1387,17 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                     color: Colors.grey[50],
                     border: Border.all(color: Colors.grey[200]!),
                   ),
-                  child: _buildIncidentTrendsChart(stats['dailyTrends'] as Map<String, dynamic>? ?? {}),
+                  child: _buildIncidentTrendsChart(
+                    stats['dailyTrends'] as Map<String, dynamic>? ?? {},
+                  ),
                 ),
                 const SizedBox(height: 28),
 
                 Text(
                   'Incident Status Distribution',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Container(
@@ -1208,14 +1409,26 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                   ),
                   child: Column(
                     children: [
-                      _buildStatusPieChart(openReports, activeReports, closedReports),
+                      _buildStatusPieChart(
+                        openReports,
+                        activeReports,
+                        closedReports,
+                      ),
                       const SizedBox(height: 20),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
                           _buildLegendItem('Open', Colors.amber, openReports),
-                          _buildLegendItem('Active', Colors.orange, activeReports),
-                          _buildLegendItem('Closed', Colors.green, closedReports),
+                          _buildLegendItem(
+                            'Active',
+                            Colors.orange,
+                            activeReports,
+                          ),
+                          _buildLegendItem(
+                            'Closed',
+                            Colors.green,
+                            closedReports,
+                          ),
                         ],
                       ),
                     ],
@@ -1227,8 +1440,8 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                 Text(
                   'Report Statistics',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 16),
 
@@ -1243,13 +1456,33 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildStatisticTextRow('Total Reports', totalReports, Colors.blue, () => _navigateToReports(context, 'all')),
+                      _buildStatisticTextRow(
+                        'Total Reports',
+                        totalReports,
+                        Colors.blue,
+                        () => _navigateToReports(context, 'all'),
+                      ),
                       const SizedBox(height: 12),
-                      _buildStatisticTextRow('Awaiting Review', openReports, Colors.amber, () => _navigateToReports(context, 'open')),
+                      _buildStatisticTextRow(
+                        'Awaiting Review',
+                        openReports,
+                        Colors.amber,
+                        () => _navigateToReports(context, 'open'),
+                      ),
                       const SizedBox(height: 12),
-                      _buildStatisticTextRow('In Progress', activeReports, Colors.orange, () => _navigateToReports(context, 'active')),
+                      _buildStatisticTextRow(
+                        'In Progress',
+                        activeReports,
+                        Colors.orange,
+                        () => _navigateToReports(context, 'active'),
+                      ),
                       const SizedBox(height: 12),
-                      _buildStatisticTextRow('Closed', closedReports, Colors.green, () => _navigateToReports(context, 'closed')),
+                      _buildStatisticTextRow(
+                        'Closed',
+                        closedReports,
+                        Colors.green,
+                        () => _navigateToReports(context, 'closed'),
+                      ),
                     ],
                   ),
                 ),
@@ -1259,8 +1492,8 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                 Text(
                   'Priority Distribution',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 16),
 
@@ -1275,15 +1508,40 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildStatisticTextRow('Not Set', notSetPriority, Colors.grey, () => _navigateToBySeverity(context, 'notset')),
+                      _buildStatisticTextRow(
+                        'Not Set',
+                        notSetPriority,
+                        Colors.grey,
+                        () => _navigateToBySeverity(context, 'notset'),
+                      ),
                       const SizedBox(height: 12),
-                      _buildStatisticTextRow('Low', lowPriority, Colors.blue, () => _navigateToBySeverity(context, 'low')),
+                      _buildStatisticTextRow(
+                        'Low',
+                        lowPriority,
+                        Colors.blue,
+                        () => _navigateToBySeverity(context, 'low'),
+                      ),
                       const SizedBox(height: 12),
-                      _buildStatisticTextRow('Medium', mediumPriority, Colors.orange, () => _navigateToBySeverity(context, 'medium')),
+                      _buildStatisticTextRow(
+                        'Medium',
+                        mediumPriority,
+                        Colors.orange,
+                        () => _navigateToBySeverity(context, 'medium'),
+                      ),
                       const SizedBox(height: 12),
-                      _buildStatisticTextRow('High', highPriority, Colors.orange, () => _navigateToBySeverity(context, 'high')),
+                      _buildStatisticTextRow(
+                        'High',
+                        highPriority,
+                        Colors.orange,
+                        () => _navigateToBySeverity(context, 'high'),
+                      ),
                       const SizedBox(height: 12),
-                      _buildStatisticTextRow('Critical', criticalPriority, Colors.red, () => _navigateToBySeverity(context, 'critical')),
+                      _buildStatisticTextRow(
+                        'Critical',
+                        criticalPriority,
+                        Colors.red,
+                        () => _navigateToBySeverity(context, 'critical'),
+                      ),
                     ],
                   ),
                 ),
@@ -1304,9 +1562,9 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
         child: Center(
           child: Text(
             'No incidents to display',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.grey,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
           ),
         ),
       );
@@ -1318,7 +1576,8 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
         PieChartData(
           pieTouchData: PieTouchData(
             touchCallback: (FlTouchEvent event, pieTouchResponse) {
-              if (!event.isInterestedForInteractions || pieTouchResponse == null) {
+              if (!event.isInterestedForInteractions ||
+                  pieTouchResponse == null) {
                 if (_touchedIndex != -1) {
                   setState(() {
                     _touchedIndex = -1;
@@ -1326,7 +1585,8 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                 }
                 return;
               }
-              final newTouchedIndex = pieTouchResponse.touchedSection?.touchedSectionIndex ?? -1;
+              final newTouchedIndex =
+                  pieTouchResponse.touchedSection?.touchedSectionIndex ?? -1;
               if (_touchedIndex != newTouchedIndex) {
                 setState(() {
                   _touchedIndex = newTouchedIndex;
@@ -1383,9 +1643,9 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
         child: Center(
           child: Text(
             'No incident data available',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.grey,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
           ),
         ),
       );
@@ -1400,7 +1660,9 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
     }
 
     // Find max value for Y axis
-    final maxValue = spots.isEmpty ? 10.0 : spots.map((e) => e.y).reduce((a, b) => a > b ? a : b);
+    final maxValue = spots.isEmpty
+        ? 10.0
+        : spots.map((e) => e.y).reduce((a, b) => a > b ? a : b);
     final yAxisMax = (maxValue + 2).ceilToDouble();
 
     return Column(
@@ -1560,9 +1822,9 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
               Expanded(
                 child: Text(
                   'Shows incident creation trend over the last 7 days',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.blue.shade700,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: Colors.blue.shade700),
                 ),
               ),
             ],
@@ -1578,10 +1840,7 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
         Container(
           width: 16,
           height: 16,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(height: 4),
         Text(
@@ -1600,7 +1859,12 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
     );
   }
 
-  Widget _buildStatisticTextRow(String label, int count, Color color, VoidCallback onTap) {
+  Widget _buildStatisticTextRow(
+    String label,
+    int count,
+    Color color,
+    VoidCallback onTap,
+  ) {
     return Column(
       children: [
         Material(
@@ -1610,7 +1874,10 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
             splashColor: Colors.grey.withOpacity(0.1),
             highlightColor: Colors.grey.withOpacity(0.05),
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 14.0, horizontal: 4),
+              padding: const EdgeInsets.symmetric(
+                vertical: 14.0,
+                horizontal: 4,
+              ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -1645,17 +1912,10 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
             ),
           ),
         ),
-        Divider(
-          color: Colors.grey.withOpacity(0.2),
-          height: 1,
-        ),
+        Divider(color: Colors.grey.withOpacity(0.2), height: 1),
       ],
     );
   }
-
-
-
-
 
   void _navigateToReports(BuildContext context, String filter) {
     Navigator.push(
@@ -1683,20 +1943,18 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
 
   // ===== REFACTORED BUILD HELPER METHODS =====
 
-
-
-
-
   // ===== NEW SUPERVISOR FUNCTIONS =====
-  
+
   String _extractReporterName(dynamic value) {
     // Simplified reporter name extraction with cleaner fallbacks
     if (value is Map) {
-      return value['reporter'] ?? 
-             value['reporterName'] ?? 
-             value['reportedBy'] ?? 
-             (value['reporterInfo'] is Map ? value['reporterInfo']['name'] : null) ??
-             'Unknown';
+      return value['reporter'] ??
+          value['reporterName'] ??
+          value['reportedBy'] ??
+          (value['reporterInfo'] is Map
+              ? value['reporterInfo']['name']
+              : null) ??
+          'Unknown';
     }
     return 'Unknown';
   }
@@ -1729,20 +1987,22 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
         final now = DateTime.now().millisecondsSinceEpoch;
         final oneDayMs = 24 * 60 * 60 * 1000;
         final data = event.snapshot.value as Map?;
-        
+
         data?.forEach((key, value) {
           if (value is Map) {
             final status = value['status']?.toString().toLowerCase() ?? 'open';
             final severity = value['severity']?.toString().toLowerCase() ?? '';
-            final createdTime = (value['timestamp'] ?? value['createdAt']) as int? ?? 0;
+            final createdTime =
+                (value['timestamp'] ?? value['createdAt']) as int? ?? 0;
             final ageMs = now - createdTime;
-            
+
             // Mark as overdue if: not closed AND (critical OR (high/medium and over 1 day old))
             final isCritical = severity == 'critical';
             final isHighPriority = severity == 'high' || severity == 'medium';
             final isOldEnough = ageMs > oneDayMs;
-            
-            if (status != 'closed' && (isCritical || (isHighPriority && isOldEnough))) {
+
+            if (status != 'closed' &&
+                (isCritical || (isHighPriority && isOldEnough))) {
               overdue.add({
                 'id': key,
                 'title': value['title'] ?? 'Untitled',
@@ -1758,7 +2018,3 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
     });
   }
 }
-
-
-
-

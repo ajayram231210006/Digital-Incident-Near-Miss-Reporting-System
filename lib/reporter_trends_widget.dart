@@ -50,8 +50,7 @@ class _ReporterTrendsWidgetState extends State<ReporterTrendsWidget> {
                       : '${date.year}-${date.month.toString().padLeft(2, '0')}';
 
                   if (_isWeekly) {
-                    final daysDiff =
-                        now.difference(date).inDays;
+                    final daysDiff = now.difference(date).inDays;
                     if (daysDiff >= 0 && daysDiff < 7) {
                       trendData[reportKey] = (trendData[reportKey] ?? 0) + 1;
                     }
@@ -73,11 +72,8 @@ class _ReporterTrendsWidgetState extends State<ReporterTrendsWidget> {
   Widget build(BuildContext context) {
     return StreamBuilder<Map<String, int>>(
       stream: _getTrendsStream(),
+      initialData: const <String, int>{},
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
         if (!snapshot.hasData) {
           return const SizedBox.shrink();
         }
@@ -98,7 +94,9 @@ class _ReporterTrendsWidgetState extends State<ReporterTrendsWidget> {
           }
         }
 
-        final maxY = spots.isEmpty ? 5.0 : spots.map((e) => e.y).reduce((a, b) => a > b ? a : b) + 2;
+        final maxY = spots.isEmpty
+            ? 5.0
+            : spots.map((e) => e.y).reduce((a, b) => a > b ? a : b) + 2;
 
         return Container(
           decoration: BoxDecoration(
@@ -134,9 +132,7 @@ class _ReporterTrendsWidgetState extends State<ReporterTrendsWidget> {
                         children: [
                           Text(
                             'Submission Trends',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
+                            style: Theme.of(context).textTheme.titleMedium
                                 ?.copyWith(fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 4),
@@ -276,18 +272,18 @@ class _ReporterTrendsWidgetState extends State<ReporterTrendsWidget> {
                       Expanded(
                         child: _TrendStatBox(
                           label: 'Avg/Day',
-                          value: (spots.isEmpty
-                                  ? 0
-                                  : spots
-                                          .fold<int>(
-                                              0,
-                                              (sum, spot) =>
-                                                  sum +
-                                                  spot.y
-                                                      .toInt())
-                                          .toDouble() /
-                                      7)
-                              .toStringAsFixed(1),
+                          value:
+                              (spots.isEmpty
+                                      ? 0
+                                      : spots
+                                                .fold<int>(
+                                                  0,
+                                                  (sum, spot) =>
+                                                      sum + spot.y.toInt(),
+                                                )
+                                                .toDouble() /
+                                            7)
+                                  .toStringAsFixed(1),
                           icon: Icons.show_chart,
                           color: Colors.green,
                         ),

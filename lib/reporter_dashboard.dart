@@ -7,6 +7,7 @@ import 'reporter_reports_list.dart';
 import 'reporter_report_detail.dart';
 import 'notifications_viewer.dart';
 import 'notification_service.dart';
+import 'offline_report_queue_service.dart';
 import 'reporter_trends_widget.dart';
 import 'activity_timeline_widget.dart';
 import 'report_templates_dialog.dart';
@@ -25,6 +26,8 @@ class _ReporterDashboardState extends State<ReporterDashboard>
     with SingleTickerProviderStateMixin {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   final NotificationService _notificationService = NotificationService();
+  final OfflineReportQueueService _offlineQueueService =
+      OfflineReportQueueService();
   late AnimationController _animationController;
   StreamSubscription<Map<String, dynamic>>? _notificationTapSubscription;
   StreamSubscription<int>? _badgeCountSubscription;
@@ -34,6 +37,7 @@ class _ReporterDashboardState extends State<ReporterDashboard>
   @override
   void initState() {
     super.initState();
+    _dbRef.child('incidents').keepSynced(true);
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 2000),
       vsync: this,
@@ -46,31 +50,36 @@ class _ReporterDashboardState extends State<ReporterDashboard>
   }
 
   Future<void> _initializeNotifications() async {
-    _notificationTapSubscription =
-        _notificationService.notificationTapStream.listen((notificationData) {
-      _handleNotificationTap(notificationData);
-    });
+    _notificationTapSubscription = _notificationService.notificationTapStream
+        .listen((notificationData) {
+          _handleNotificationTap(notificationData);
+        });
 
     _badgeCountSubscription = _unreadCountStream.listen((count) {
       _notificationService.updateAppBadgeCount(count);
     });
 
-    final pendingNotification =
-        _notificationService.consumePendingLaunchNotification();
+    final pendingNotification = _notificationService
+        .consumePendingLaunchNotification();
     if (pendingNotification != null && mounted) {
       _handleNotificationTap(pendingNotification);
     }
   }
 
-  Future<void> _handleNotificationTap(Map<String, dynamic> notificationData) async {
+  Future<void> _handleNotificationTap(
+    Map<String, dynamic> notificationData,
+  ) async {
     try {
       final reportId = notificationData['reportId'];
       if (reportId != null && reportId.toString().isNotEmpty && mounted) {
         // Fetch incident details
-        final snapshot = await _dbRef.child('incidents').child(reportId.toString()).get();
+        final snapshot = await _dbRef
+            .child('incidents')
+            .child(reportId.toString())
+            .get();
         if (snapshot.exists && mounted) {
           final reportData = Map<String, dynamic>.from(snapshot.value as Map);
-          
+
           // Navigate to report detail
           Navigator.of(context).push(
             MaterialPageRoute(
@@ -96,24 +105,30 @@ class _ReporterDashboardState extends State<ReporterDashboard>
   }
 
   Stream<Map<String, int>> _getReportStatsStream() {
-    return _dbRef.child('incidents').onValue.map((event) {
-      if (!event.snapshot.exists) {
-        return {'total': 0, 'open': 0, 'active': 0, 'approved': 0};
-      }
+    final controller = StreamController<Map<String, int>>();
 
+    Map<String, int> baseStats = {
+      'total': 0,
+      'open': 0,
+      'active': 0,
+      'approved': 0,
+    };
+
+    Map<String, int> calculateBaseStats(Map<dynamic, dynamic>? data) {
       int total = 0;
       int open = 0;
       int active = 0;
       int approved = 0;
 
-      final data = event.snapshot.value as Map?;
       if (data != null) {
         data.forEach((key, value) {
           if (value is Map) {
             final reporterUid = value['reporterUid']?.toString() ?? '';
             if (reporterUid == widget.user.uid) {
               total++;
-              final status = (value['status'] ?? 'open').toString().toLowerCase();
+              final status = (value['status'] ?? 'open')
+                  .toString()
+                  .toLowerCase();
 
               if (status == 'closed') {
                 approved++;
@@ -127,18 +142,73 @@ class _ReporterDashboardState extends State<ReporterDashboard>
         });
       }
 
-      return {'total': total, 'open': open, 'active': active, 'approved': approved};
-    });
+      return {
+        'total': total,
+        'open': open,
+        'active': active,
+        'approved': approved,
+      };
+    }
+
+    Future<void> emitMergedStats() async {
+      final pendingCount = await _offlineQueueService
+          .getPendingCountForReporter(widget.user.uid);
+
+      controller.add({
+        'total': (baseStats['total'] ?? 0) + pendingCount,
+        'open': (baseStats['open'] ?? 0) + pendingCount,
+        'active': baseStats['active'] ?? 0,
+        'approved': baseStats['approved'] ?? 0,
+      });
+    }
+
+    unawaited(() async {
+      baseStats = await _offlineQueueService.getCachedReporterStats(
+        widget.user.uid,
+      );
+      await emitMergedStats();
+    }());
+
+    final incidentsSub = _dbRef
+        .child('incidents')
+        .onValue
+        .listen(
+          (event) async {
+            final raw = event.snapshot.value;
+            if (raw is Map) {
+              baseStats = calculateBaseStats(raw);
+              await _offlineQueueService.cacheReporterStats(
+                widget.user.uid,
+                baseStats,
+              );
+            }
+            await emitMergedStats();
+          },
+          onError: (_) async {
+            await emitMergedStats();
+          },
+        );
+
+    final pendingSub = _offlineQueueService
+        .watchPendingCountForReporter(widget.user.uid)
+        .listen((_) async {
+          await emitMergedStats();
+        });
+
+    controller.onCancel = () async {
+      await incidentsSub.cancel();
+      await pendingSub.cancel();
+    };
+
+    return controller.stream;
   }
 
   void _navigateToReports(BuildContext context, String filter) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ReporterReportsList(
-          user: widget.user,
-          filterStatus: filter,
-        ),
+        builder: (context) =>
+            ReporterReportsList(user: widget.user, filterStatus: filter),
       ),
     );
   }
@@ -163,7 +233,8 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (context) => NotificationsViewer(user: widget.user),
+                          builder: (context) =>
+                              NotificationsViewer(user: widget.user),
                         ),
                       );
                     },
@@ -202,23 +273,28 @@ class _ReporterDashboardState extends State<ReporterDashboard>
             tooltip: 'Sign out',
             onPressed: () async {
               // Show confirmation dialog before logout
-              final shouldLogout = await showDialog<bool>(
-                context: context,
-                builder: (BuildContext dialogContext) => AlertDialog(
-                  title: const Text('Sign Out'),
-                  content: const Text('Are you sure you want to sign out?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(dialogContext, false),
-                      child: const Text('Cancel'),
+              final shouldLogout =
+                  await showDialog<bool>(
+                    context: context,
+                    builder: (BuildContext dialogContext) => AlertDialog(
+                      title: const Text('Sign Out'),
+                      content: const Text('Are you sure you want to sign out?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Cancel'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          child: const Text(
+                            'Sign Out',
+                            style: TextStyle(color: Colors.red),
+                          ),
+                        ),
+                      ],
                     ),
-                    TextButton(
-                      onPressed: () => Navigator.pop(dialogContext, true),
-                      child: const Text('Sign Out', style: TextStyle(color: Colors.red)),
-                    ),
-                  ],
-                ),
-              ) ?? false;
+                  ) ??
+                  false;
 
               if (shouldLogout && context.mounted) {
                 await FirebaseAuth.instance.signOut();
@@ -233,10 +309,8 @@ class _ReporterDashboardState extends State<ReporterDashboard>
       ),
       body: StreamBuilder<Map<String, int>>(
         stream: _getReportStatsStream(),
+        initialData: const {'total': 0, 'open': 0, 'active': 0, 'approved': 0},
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
           if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           }
@@ -255,10 +329,7 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [
-                        Colors.green.shade400,
-                        Colors.green.shade600,
-                      ],
+                      colors: [Colors.green.shade400, Colors.green.shade600],
                     ),
                     boxShadow: [
                       BoxShadow(
@@ -309,9 +380,14 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                                       text: TextSpan(
                                         children: [
                                           TextSpan(
-                                            text: (widget.user.displayName ?? widget.user.email?.split('@').first ?? 'Reporter')
-                                                .split(' ')
-                                                .first,
+                                            text:
+                                                (widget.user.displayName ??
+                                                        widget.user.email
+                                                            ?.split('@')
+                                                            .first ??
+                                                        'Reporter')
+                                                    .split(' ')
+                                                    .first,
                                             style: Theme.of(context)
                                                 .textTheme
                                                 .titleSmall
@@ -348,11 +424,11 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                               Expanded(
                                 child: Text(
                                   'Stay on top of your reports and track progress',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
+                                  style: Theme.of(context).textTheme.bodySmall
                                       ?.copyWith(
-                                        color: Colors.white.withValues(alpha: 0.85),
+                                        color: Colors.white.withValues(
+                                          alpha: 0.85,
+                                        ),
                                         fontWeight: FontWeight.w500,
                                       ),
                                 ),
@@ -378,11 +454,14 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                             child: _CircularStatCard(
                               title: 'Total',
                               count: totalReports,
-                              total: totalReports + openReports + activeReports + approvedReports,
+                              total:
+                                  totalReports +
+                                  openReports +
+                                  activeReports +
+                                  approvedReports,
                               color: Colors.blue,
                               icon: Icons.assignment,
-                              onTap: () =>
-                                  _navigateToReports(context, 'all'),
+                              onTap: () => _navigateToReports(context, 'all'),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -393,8 +472,7 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                               total: totalReports,
                               color: Colors.orange,
                               icon: Icons.schedule,
-                              onTap: () =>
-                                  _navigateToReports(context, 'open'),
+                              onTap: () => _navigateToReports(context, 'open'),
                             ),
                           ),
                         ],
@@ -432,9 +510,7 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                       // Quick Actions Section
                       Text(
                         'Quick Actions',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
+                        style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 12),
@@ -471,8 +547,7 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                         label: 'View All Reports',
                         icon: Icons.list_alt,
                         isPrimary: false,
-                        onPressed: () =>
-                            _navigateToReports(context, 'all'),
+                        onPressed: () => _navigateToReports(context, 'all'),
                       ),
                       const SizedBox(height: 10),
                       _QuickActionButton(
@@ -630,9 +705,10 @@ class _CircularStatCardState extends State<_CircularStatCard>
       duration: const Duration(milliseconds: 200),
       vsync: this,
     );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.95,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override
@@ -643,8 +719,9 @@ class _CircularStatCardState extends State<_CircularStatCard>
 
   @override
   Widget build(BuildContext context) {
-    final percentage =
-        widget.total > 0 ? (widget.count / widget.total * 100).toInt() : 0;
+    final percentage = widget.total > 0
+        ? (widget.count / widget.total * 100).toInt()
+        : 0;
 
     return GestureDetector(
       onTapDown: (_) => _controller.forward(),
@@ -673,10 +750,7 @@ class _CircularStatCardState extends State<_CircularStatCard>
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [
-                    Colors.white,
-                    Colors.grey.shade50,
-                  ],
+                  colors: [Colors.white, Colors.grey.shade50],
                 ),
               ),
               padding: const EdgeInsets.all(16),
@@ -702,11 +776,7 @@ class _CircularStatCardState extends State<_CircularStatCard>
                         Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(
-                              widget.icon,
-                              color: widget.color,
-                              size: 28,
-                            ),
+                            Icon(widget.icon, color: widget.color, size: 28),
                           ],
                         ),
                       ],
@@ -733,8 +803,10 @@ class _CircularStatCardState extends State<_CircularStatCard>
                   ),
                   const SizedBox(height: 8),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: widget.color.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
@@ -805,27 +877,20 @@ class _QuickActionButtonState extends State<_QuickActionButton>
       },
       onTapCancel: () => _controller.reverse(),
       child: ScaleTransition(
-        scale: Tween<double>(begin: 1.0, end: 0.95)
-            .animate(CurvedAnimation(
-              parent: _controller,
-              curve: Curves.easeInOut,
-            )),
+        scale: Tween<double>(begin: 1.0, end: 0.95).animate(
+          CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+        ),
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             gradient: widget.isPrimary
                 ? LinearGradient(
-                    colors: [
-                      Colors.green.shade400,
-                      Colors.green.shade600,
-                    ],
+                    colors: [Colors.green.shade400, Colors.green.shade600],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   )
                 : null,
-            color: widget.isPrimary
-                ? null
-                : Colors.grey.shade100,
+            color: widget.isPrimary ? null : Colors.grey.shade100,
             boxShadow: widget.isPrimary
                 ? [
                     BoxShadow(
@@ -916,11 +981,9 @@ class _FABActionState extends State<_FABAction>
       },
       onTapCancel: () => _controller.reverse(),
       child: ScaleTransition(
-        scale: Tween<double>(begin: 1.0, end: 0.9)
-            .animate(CurvedAnimation(
-              parent: _controller,
-              curve: Curves.easeInOut,
-            )),
+        scale: Tween<double>(begin: 1.0, end: 0.9).animate(
+          CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+        ),
         child: Container(
           decoration: BoxDecoration(
             color: Colors.white,
@@ -943,11 +1006,7 @@ class _FABActionState extends State<_FABAction>
                   color: widget.color.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(
-                  widget.icon,
-                  size: 20,
-                  color: widget.color,
-                ),
+                child: Icon(widget.icon, size: 20, color: widget.color),
               ),
               const SizedBox(width: 10),
               Text(

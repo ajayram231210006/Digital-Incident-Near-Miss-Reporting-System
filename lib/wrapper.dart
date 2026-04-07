@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 import 'homepage.dart';
 import 'login.dart';
@@ -21,12 +22,17 @@ class _WrapperState extends State<Wrapper> {
   late Future<bool> _splashFuture;
   final NotificationService _notificationService = NotificationService();
   String? _notificationSetupForUid;
+  String? _profileFutureUid;
+  Future<Map<String, dynamic>?>? _profileFuture;
+  static const String _sessionBoxName = 'user_session_cache';
 
   @override
   void initState() {
     super.initState();
-    _splashFuture =
-        Future.delayed(const Duration(milliseconds: 1500), () => true);
+    _splashFuture = Future.delayed(
+      const Duration(milliseconds: 1500),
+      () => true,
+    );
   }
 
   @override
@@ -37,22 +43,14 @@ class _WrapperState extends State<Wrapper> {
       builder: (context, snapshot) {
         // 🔹 Splash Screen
         if (snapshot.data == false) {
-          return SplashScreen(
-            onComplete: () {},
-          );
+          return SplashScreen(onComplete: () {});
         }
 
         // 🔹 Auth State
         return StreamBuilder<User?>(
           stream: FirebaseAuth.instance.authStateChanges(),
+          initialData: FirebaseAuth.instance.currentUser,
           builder: (context, authSnapshot) {
-            if (authSnapshot.connectionState ==
-                ConnectionState.waiting) {
-              return const Scaffold(
-                body: Center(child: CircularProgressIndicator()),
-              );
-            }
-
             final user = authSnapshot.data;
 
             // 🔹 If user not logged in
@@ -68,44 +66,24 @@ class _WrapperState extends State<Wrapper> {
               });
             }
 
+            if (_profileFutureUid != user.uid || _profileFuture == null) {
+              _profileFutureUid = user.uid;
+              _profileFuture = _loadUserDataWithOfflineFallback(user.uid);
+            }
+
             // 🔹 Fetch user data from Realtime DB
-            return FutureBuilder<DatabaseEvent>(
-              future:
-              FirebaseDatabase.instance.ref('users/${user.uid}').once(),
+            return FutureBuilder<Map<String, dynamic>?>(
+              future: _profileFuture,
               builder: (context, userSnapshot) {
-                if (userSnapshot.connectionState ==
-                    ConnectionState.waiting) {
+                if (userSnapshot.connectionState == ConnectionState.waiting) {
                   return const Scaffold(
                     body: Center(child: CircularProgressIndicator()),
                   );
                 }
 
-                if (userSnapshot.hasError) {
-                  debugPrint("Database Error: ${userSnapshot.error}");
-                  FirebaseAuth.instance.signOut();
-                  return const LoginPage();
-                }
-
-                final snapshotData = userSnapshot.data?.snapshot;
-
-                // ❗ SAFE CHECK (CRITICAL FIX)
-                if (snapshotData == null ||
-                    !snapshotData.exists ||
-                    snapshotData.value == null) {
-                  FirebaseAuth.instance.signOut();
-                  return const LoginPage();
-                }
-
-                Map<String, dynamic> userData;
-
-                try {
-                  userData = Map<String, dynamic>.from(
-                    snapshotData.value as Map<Object?, Object?>,
-                  );
-                } catch (e) {
-                  debugPrint("Data parsing error: $e");
-                  FirebaseAuth.instance.signOut();
-                  return const LoginPage();
+                final userData = userSnapshot.data;
+                if (userData == null) {
+                  return _buildOfflineUnavailableScreen();
                 }
 
                 final role = userData['role'] as String?;
@@ -113,8 +91,7 @@ class _WrapperState extends State<Wrapper> {
                     userData['status'] as String? ?? 'pending_approval';
 
                 if (role == null) {
-                  FirebaseAuth.instance.signOut();
-                  return const LoginPage();
+                  return _buildOfflineUnavailableScreen();
                 }
 
                 // 🔹 Pending Approval
@@ -123,7 +100,7 @@ class _WrapperState extends State<Wrapper> {
                     icon: Icons.hourglass_empty,
                     title: 'Account Pending Approval',
                     message:
-                    'Your ${role.toUpperCase()} account is awaiting admin approval.',
+                        'Your ${role.toUpperCase()} account is awaiting admin approval.',
                     color: Colors.orange,
                   );
                 }
@@ -133,8 +110,7 @@ class _WrapperState extends State<Wrapper> {
                   return _buildStatusScreen(
                     icon: Icons.block,
                     title: 'Account Rejected',
-                    message:
-                    'Your account has been rejected. Contact support.',
+                    message: 'Your account has been rejected. Contact support.',
                     color: Colors.red,
                   );
                 }
@@ -155,6 +131,98 @@ class _WrapperState extends State<Wrapper> {
           },
         );
       },
+    );
+  }
+
+  Future<Map<String, dynamic>?> _loadUserDataWithOfflineFallback(
+    String uid,
+  ) async {
+    try {
+      final event = await FirebaseDatabase.instance
+          .ref('users/$uid')
+          .once()
+          .timeout(const Duration(seconds: 4));
+
+      final snapshot = event.snapshot;
+      if (!snapshot.exists || snapshot.value == null) {
+        return _loadCachedUserData(uid);
+      }
+
+      final userData = Map<String, dynamic>.from(
+        snapshot.value as Map<Object?, Object?>,
+      );
+      await _cacheUserData(uid, userData);
+      return userData;
+    } catch (e) {
+      debugPrint('Wrapper: remote profile load failed, using cache. $e');
+      return _loadCachedUserData(uid);
+    }
+  }
+
+  Future<Map<String, dynamic>?> _loadCachedUserData(String uid) async {
+    try {
+      final box = await _openSessionBox();
+      final cached = box.get(uid);
+      if (cached is Map) {
+        return Map<String, dynamic>.from(cached.cast<String, dynamic>());
+      }
+    } catch (e) {
+      debugPrint('Wrapper: cache read failed. $e');
+    }
+    return null;
+  }
+
+  Future<void> _cacheUserData(String uid, Map<String, dynamic> userData) async {
+    try {
+      final box = await _openSessionBox();
+      await box.put(uid, {
+        'role': userData['role'],
+        'status': userData['status'],
+      });
+    } catch (e) {
+      debugPrint('Wrapper: cache write failed. $e');
+    }
+  }
+
+  Future<Box<dynamic>> _openSessionBox() async {
+    if (Hive.isBoxOpen(_sessionBoxName)) {
+      return Hive.box<dynamic>(_sessionBoxName);
+    }
+    return Hive.openBox<dynamic>(_sessionBoxName);
+  }
+
+  Widget _buildOfflineUnavailableScreen() {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.cloud_off, size: 72, color: Colors.orange),
+              const SizedBox(height: 16),
+              const Text(
+                'Offline Mode Unavailable',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Connect to the internet once so profile data can be cached for offline dashboard access.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 22),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  await FirebaseAuth.instance.signOut();
+                },
+                icon: const Icon(Icons.logout),
+                label: const Text('Logout'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -182,10 +250,7 @@ class _WrapperState extends State<Wrapper> {
                 ),
               ),
               const SizedBox(height: 12),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-              ),
+              Text(message, textAlign: TextAlign.center),
               const SizedBox(height: 30),
               ElevatedButton.icon(
                 onPressed: () async {
