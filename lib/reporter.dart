@@ -1,18 +1,30 @@
+import 'dart:async';
 import 'dart:io';
+
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:cloudinary_public/cloudinary_public.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
+
+import 'app_theme.dart';
+import 'incident_ai_service.dart';
+import 'incident_media_service.dart';
+import 'incident_service.dart';
 import 'notification_service.dart';
+import 'offline_incident_queue_service.dart';
+import 'reporter_identity.dart';
 import 'ui_components.dart';
 
-// Incident Report Form Widget
 class ReportIncidentForm extends StatefulWidget {
-  final User user;
-  const ReportIncidentForm({super.key, required this.user});
+  final ReporterIdentity reporter;
+  final bool forceOffline;
+
+  const ReportIncidentForm({
+    super.key,
+    required this.reporter,
+    this.forceOffline = false,
+  });
 
   @override
   State<ReportIncidentForm> createState() => _ReportIncidentFormState();
@@ -23,109 +35,101 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
   final _typeController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _locationController = TextEditingController();
-  DateTime? _incidentDate;
-  List<File> _imageFiles = [];
+  final _picker = ImagePicker();
+  final _notificationService = NotificationService();
+  final _incidentService = IncidentService();
+  final _incidentAiService = IncidentAiService();
+  final _incidentMediaService = const IncidentMediaService();
+  final _offlineQueueService = OfflineIncidentQueueService();
+
+  DateTime? _incidentDate = DateTime.now();
+  final List<File> _imageFiles = [];
   File? _videoFile;
   bool _submitting = false;
   bool _gettingLocation = false;
   Position? _currentPosition;
   String? _autoLocationName;
-  final ImagePicker _picker = ImagePicker();
-  final NotificationService _notificationService = NotificationService();
-
-  @override
-  void initState() {
-    super.initState();
-    // Initialize incident date to today
-    _incidentDate = DateTime.now();
-    debugPrint('📅 Report form initialized with date: ${_incidentDate!.toIso8601String()}');
-  }
 
   @override
   void dispose() {
     _typeController.dispose();
     _descriptionController.dispose();
     _locationController.dispose();
+    _offlineQueueService.dispose();
     super.dispose();
   }
 
-  Future<void> _pickImage() async {
-    final List<XFile> pickedFiles = await _picker.pickMultiImage(
-      maxWidth: 1200,
+  void _runAiAnalysisInBackground({
+    required String incidentId,
+    required IncidentDraft incidentDraft,
+  }) {
+    unawaited(
+      _incidentAiService.analyzeIncident(
+        incidentId: incidentId,
+        draft: incidentDraft,
+      ),
     );
-    if (pickedFiles.isNotEmpty) {
-      setState(() {
-        _imageFiles.addAll(pickedFiles.map((f) => File(f.path)).toList());
-      });
-      debugPrint('📷 Added ${pickedFiles.length} images from gallery');
-    }
+  }
+
+  Future<void> _pickImage() async {
+    final pickedFiles = await _picker.pickMultiImage(maxWidth: 1200);
+    if (pickedFiles.isEmpty) return;
+    setState(() {
+      _imageFiles.addAll(pickedFiles.map((file) => File(file.path)));
+    });
   }
 
   Future<void> _takePhoto() async {
-    final XFile? picked = await _picker.pickImage(
+    final picked = await _picker.pickImage(
       source: ImageSource.camera,
       maxWidth: 1200,
     );
-    if (picked != null) {
-      setState(() {
-        _imageFiles.add(File(picked.path));
-      });
-      debugPrint('📷 Added 1 image from camera');
-    }
+    if (picked == null) return;
+    setState(() => _imageFiles.add(File(picked.path)));
   }
 
   Future<void> _pickVideo() async {
-    final XFile? picked = await _picker.pickVideo(
+    final picked = await _picker.pickVideo(
       source: ImageSource.gallery,
       maxDuration: const Duration(minutes: 5),
     );
-    if (picked != null) {
-      setState(() {
-        _videoFile = File(picked.path);
-      });
-    }
+    if (picked == null) return;
+    setState(() => _videoFile = File(picked.path));
   }
 
   Future<void> _recordVideo() async {
-    final XFile? picked = await _picker.pickVideo(
+    final picked = await _picker.pickVideo(
       source: ImageSource.camera,
       maxDuration: const Duration(minutes: 5),
     );
-    if (picked != null) {
-      setState(() {
-        _videoFile = File(picked.path);
-      });
+    if (picked == null) return;
+    setState(() => _videoFile = File(picked.path));
+  }
+
+  Future<String?> _uploadImageToCloudinary(File file) async {
+    try {
+      return await _incidentMediaService.uploadImage(file);
+    } catch (_) {
+      if (mounted) {
+        showAppSnackBar(
+          context,
+          'Image upload failed. Please try a different file.',
+          type: AppSnackBarType.error,
+        );
+      }
+      return null;
     }
   }
 
   Future<String?> _uploadVideoToCloudinary(File file) async {
-    // Use unsigned upload with API key for better compatibility
-    final cloudinary = CloudinaryPublic(
-      'djosnccv7',
-      'incident_image', // Use same preset as images for consistency
-      cache: false,
-    );
     try {
-      debugPrint('📹 Starting video upload to Cloudinary: ${file.path}');
-      final sizeMB = file.lengthSync() / (1024 * 1024);
-      debugPrint('📹 File size: ${sizeMB.toStringAsFixed(2)} MB');
-      CloudinaryResponse response = await cloudinary.uploadFile(
-        CloudinaryFile.fromFile(
-          file.path,
-          resourceType: CloudinaryResourceType.Video,
-          folder: 'incident_videos', // Organize videos in separate folder
-        ),
-      );
-      debugPrint('✅ Video uploaded successfully: ${response.secureUrl}');
-      return response.secureUrl;
-    } catch (e) {
-      debugPrint('❌ Error uploading video: $e');
+      return await _incidentMediaService.uploadVideo(file);
+    } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Video upload failed. Make sure video is under 100MB.'),
-            duration: const Duration(seconds: 4),
-          ),
+        showAppSnackBar(
+          context,
+          'Video upload failed. Make sure the file is under 100 MB.',
+          type: AppSnackBarType.error,
         );
       }
       return null;
@@ -137,210 +141,280 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
     setState(() => _gettingLocation = true);
 
     try {
-      // Check location permission
-      final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        final newPermission = await Geolocator.requestPermission();
-        if (newPermission == LocationPermission.denied) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Location permission denied')),
-            );
-          }
-          return;
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Please enable location in app settings'),
-            ),
-          );
-        }
+      final isServiceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!mounted) return;
+      if (!isServiceEnabled) {
+        showAppSnackBar(
+          context,
+          'Turn on location services to auto-fill the incident location.',
+          type: AppSnackBarType.info,
+        );
         return;
       }
 
-      // Get current position with timeout
-      final position = await Geolocator.getCurrentPosition(
-        timeLimit: const Duration(seconds: 10),
-      ).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () async {
-          return await Geolocator.getLastKnownPosition() ?? Position(
-            latitude: 0,
-            longitude: 0,
-            timestamp: DateTime.now(),
-            accuracy: 0,
-            altitude: 0,
-            altitudeAccuracy: 0,
-            heading: 0,
-            headingAccuracy: 0,
-            speed: 0,
-            speedAccuracy: 0,
-          );
-        },
-      );
-
-      if (mounted) {
-        setState(() {
-          _currentPosition = position;
-          _autoLocationName =
-              '${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
-          // Auto-fill location controller with coordinates
-          _locationController.text = _autoLocationName ?? '';
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Location: $_autoLocationName'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
       }
-    } catch (e) {
+      if (!mounted) return;
+
+      if (permission == LocationPermission.denied) {
+        showAppSnackBar(
+          context,
+          'Location permission was denied. You can still enter the location manually.',
+          type: AppSnackBarType.info,
+        );
+        return;
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        showAppSnackBar(
+          context,
+          'Location permission is permanently denied. Please enable it in app settings.',
+          type: AppSnackBarType.error,
+        );
+        return;
+      }
+
+      final position =
+          await Geolocator.getCurrentPosition(
+            timeLimit: const Duration(seconds: 10),
+          ).timeout(
+            const Duration(seconds: 15),
+            onTimeout: () async {
+              return await Geolocator.getLastKnownPosition() ??
+                  Position(
+                    latitude: 0,
+                    longitude: 0,
+                    timestamp: DateTime.now(),
+                    accuracy: 0,
+                    altitude: 0,
+                    altitudeAccuracy: 0,
+                    heading: 0,
+                    headingAccuracy: 0,
+                    speed: 0,
+                    speedAccuracy: 0,
+                  );
+            },
+          );
+
+      if (!mounted) return;
+      setState(() {
+        _currentPosition = position;
+        _autoLocationName =
+            '${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
+        _locationController.text = _autoLocationName ?? '';
+      });
+      showAppSnackBar(
+        context,
+        'Location added successfully.',
+        type: AppSnackBarType.success,
+      );
+    } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error getting location: $e')),
+        showAppSnackBar(
+          context,
+          'We could not fetch your location right now. Please type it manually.',
+          type: AppSnackBarType.error,
         );
       }
     } finally {
-      if (mounted) setState(() => _gettingLocation = false);
-    }
-  }
-
-  Future<String?> _uploadImageToCloudinary(File file) async {
-    final cloudinary = CloudinaryPublic(
-      'djosnccv7',
-      'incident_image',
-      cache: false,
-    );
-    try {
-      debugPrint('🖼️ Starting image upload to Cloudinary: ${file.path}');
-      CloudinaryResponse response = await cloudinary.uploadFile(
-        CloudinaryFile.fromFile(
-          file.path,
-          resourceType: CloudinaryResourceType.Image,
-        ),
-      );
-      debugPrint('✅ Image uploaded successfully: ${response.secureUrl}');
-      return response.secureUrl;
-    } catch (e) {
-      debugPrint('❌ Error uploading image: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error uploading image: $e')),
-        );
+        setState(() => _gettingLocation = false);
       }
-      return null;
     }
   }
 
   Future<void> _submitIncident() async {
-    if (!_formKey.currentState!.validate()) return;
+    final missingFields = <String>[];
+    if (_typeController.text.trim().isEmpty) {
+      missingFields.add('incident type');
+    }
+    if (_descriptionController.text.trim().isEmpty) {
+      missingFields.add('description');
+    }
+    if (_locationController.text.trim().isEmpty) {
+      missingFields.add('location');
+    }
+
+    if (missingFields.isNotEmpty) {
+      _formKey.currentState?.validate();
+      showAppSnackBar(
+        context,
+        'Please complete: ${missingFields.join(', ')}.',
+        type: AppSnackBarType.error,
+      );
+      return;
+    }
+
     setState(() => _submitting = true);
 
     try {
-      // Upload multiple images
-      List<String> imageUrls = [];
-      if (_imageFiles.isNotEmpty) {
-        debugPrint('🖼️ Uploading ${_imageFiles.length} images...');
-        for (int i = 0; i < _imageFiles.length; i++) {
-          final url = await _uploadImageToCloudinary(_imageFiles[i]);
-          if (url != null) {
-            imageUrls.add(url);
-            debugPrint('  ✅ Image ${i + 1}/${_imageFiles.length} uploaded');
-          }
+      final baseDraft = IncidentDraft(
+        reporterUid: widget.reporter.uid,
+        reporterEmail: widget.reporter.email,
+        type: _typeController.text.trim(),
+        description: _descriptionController.text.trim(),
+        incidentDate: _incidentDate ?? DateTime.now(),
+        location: _locationController.text.trim(),
+        latitude: _currentPosition?.latitude,
+        longitude: _currentPosition?.longitude,
+        autoLocationName: _autoLocationName,
+      );
+
+      final isOnline = widget.forceOffline
+          ? false
+          : await _offlineQueueService.isOnline();
+      if (!isOnline) {
+        await _queueOfflineIncident(baseDraft);
+        return;
+      }
+
+      final imageUrls = <String>[];
+      for (final imageFile in _imageFiles) {
+        final url = await _uploadImageToCloudinary(imageFile);
+        if (url != null) {
+          imageUrls.add(url);
         }
       }
 
       String? videoUrl;
       if (_videoFile != null) {
-        debugPrint('🎬 Uploading video...');
         videoUrl = await _uploadVideoToCloudinary(_videoFile!);
       }
 
-      final incident = {
-        'reporterUid': widget.user.uid,
-        'reporterEmail': widget.user.email,
-        'type': _typeController.text.trim(),
-        'description': _descriptionController.text.trim(),
-        'date': _incidentDate != null
-            ? _incidentDate!.toIso8601String()
-            : DateTime.now().toIso8601String(),
-        'location': _locationController.text.trim(),
-        'imageUrls': imageUrls,
-        'videoUrl': videoUrl,
-        'latitude': _currentPosition?.latitude,
-        'longitude': _currentPosition?.longitude,
-        'autoLocationName': _autoLocationName,
-        'status': 'open',
-        'createdAt': DateTime.now().toIso8601String(),
-      };
-
-      debugPrint('📝 Saving incident to Firebase...');
-      debugPrint('   - Incident Date: ${incident['date']}');
-      debugPrint('   - Created At: ${incident['createdAt']}');
-      debugPrint('   - Image URLs (${imageUrls.length}): $imageUrls');
-      debugPrint('   - Video URL: $videoUrl');
-
-      final newReportRef = await FirebaseDatabase.instance.ref('incidents').push();
-      await newReportRef.set(incident);
-      
-      debugPrint('✅ Incident saved successfully with ID: ${newReportRef.key}');
-
-      // Notify all supervisors about the new report
-      await _notificationService.notifySupervisorsOnNewReport(
-        reportId: newReportRef.key ?? 'unknown',
-        reportType: _typeController.text.trim(),
-        reportTitle: _typeController.text.trim(),
-        reporterName: widget.user.displayName ?? widget.user.email ?? 'Unknown Reporter',
-        severity: 'Not Set',
+      final draft = IncidentDraft(
+        reporterUid: baseDraft.reporterUid,
+        reporterEmail: baseDraft.reporterEmail,
+        type: baseDraft.type,
+        description: baseDraft.description,
+        incidentDate: baseDraft.incidentDate,
+        location: baseDraft.location,
+        imageUrls: imageUrls,
+        videoUrl: videoUrl,
+        latitude: baseDraft.latitude,
+        longitude: baseDraft.longitude,
+        autoLocationName: baseDraft.autoLocationName,
       );
 
-      // Notify all reporters about the new report
-      await _notificationService.notifyAllReportersOnNewReport(
-        reportId: newReportRef.key ?? 'unknown',
-        reportType: _typeController.text.trim(),
-        reportTitle: _typeController.text.trim(),
-        reporterName: widget.user.displayName ?? widget.user.email ?? 'Unknown Reporter',
-        severity: 'Not Set',
-        reporterUid: widget.user.uid,
-      );
+      await _submitIncidentOnline(draft);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Incident reported successfully')),
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        'Incident reported successfully. AI suggestions will appear shortly.',
+        type: AppSnackBarType.success,
+      );
+      Navigator.of(context).pop();
+    } catch (error) {
+      final isOnline = widget.forceOffline
+          ? false
+          : await _offlineQueueService.isOnline();
+      if (!isOnline) {
+        final fallbackDraft = IncidentDraft(
+          reporterUid: widget.reporter.uid,
+          reporterEmail: widget.reporter.email,
+          type: _typeController.text.trim(),
+          description: _descriptionController.text.trim(),
+          incidentDate: _incidentDate ?? DateTime.now(),
+          location: _locationController.text.trim(),
+          latitude: _currentPosition?.latitude,
+          longitude: _currentPosition?.longitude,
+          autoLocationName: _autoLocationName,
         );
-        Navigator.of(context).pop();
-      }
-    } catch (e) {
-      debugPrint('❌ Error submitting incident: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+        await _queueOfflineIncident(fallbackDraft);
+      } else if (mounted) {
+        debugPrint('Online submission failed: $error');
+        showAppSnackBar(
+          context,
+          'We could not submit the report. Please check your connection and try again.',
+          type: AppSnackBarType.error,
         );
       }
     } finally {
-      if (mounted) setState(() => _submitting = false);
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
+    }
+  }
+
+  Future<void> _submitIncidentOnline(IncidentDraft draft) async {
+    final newReportRef = await _incidentService.createIncident(draft);
+    final incidentId = newReportRef.key;
+    if (incidentId != null) {
+      _runAiAnalysisInBackground(incidentId: incidentId, incidentDraft: draft);
+    }
+
+    final reporterName = widget.reporter.displayName.isNotEmpty
+        ? widget.reporter.displayName
+        : (widget.reporter.email ?? 'Unknown Reporter');
+
+    try {
+      await _notificationService.notifySupervisorsOnNewReport(
+        reportId: newReportRef.key ?? 'unknown',
+        reportType: draft.type,
+        reportTitle: draft.type,
+        reporterName: reporterName,
+        severity: '',
+      );
+
+      await _notificationService.notifyAllReportersOnNewReport(
+        reportId: newReportRef.key ?? 'unknown',
+        reportType: draft.type,
+        reportTitle: draft.type,
+        reporterName: reporterName,
+        severity: '',
+        reporterUid: widget.reporter.uid,
+      );
+    } catch (_) {
+      debugPrint('Incident created but one or more notifications failed.');
+    }
+  }
+
+  Future<void> _queueOfflineIncident(IncidentDraft draft) async {
+    try {
+      final pendingCount = await _offlineQueueService.queueIncidentDraft(
+        reporter: widget.reporter,
+        draft: draft,
+        imageFiles: _imageFiles,
+        videoFile: _videoFile,
+      );
+
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        'No internet detected. Report saved offline and queued for sync. Pending: $pendingCount.',
+        type: AppSnackBarType.info,
+      );
+      Navigator.of(context).pop();
+    } catch (error, stackTrace) {
+      debugPrint('Offline queue save failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        'Could not save the report offline. Please try again.',
+        type: AppSnackBarType.error,
+      );
     }
   }
 
   Future<void> _pickDate() async {
     final now = DateTime.now();
-    // Default to today if no date selected yet
-    final initialDate = _incidentDate ?? now;
     final picked = await showDatePicker(
       context: context,
-      initialDate: initialDate,
+      initialDate: _incidentDate ?? now,
       firstDate: DateTime(now.year - 5),
-      lastDate: now, // Prevent selecting future dates
+      lastDate: now,
     );
     if (picked != null) {
       setState(() => _incidentDate = picked);
-      debugPrint('📅 Incident date selected: ${picked.toIso8601String()}');
     }
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return 'Select a date';
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
   }
 
   @override
@@ -348,672 +422,359 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
     return Scaffold(
       appBar: ModernAppBar(
         title: 'Report an Incident',
-        gradientColors: [Colors.red.shade400, Colors.red.shade600],
+        gradientColors: const [AppColors.primaryDark, AppColors.primary],
       ),
       body: SingleChildScrollView(
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 20,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.lg,
+          AppSpacing.lg,
+          MediaQuery.of(context).viewInsets.bottom + AppSpacing.lg,
         ),
         child: Form(
           key: _formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Form title with description
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Incident Details',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Provide comprehensive information about the incident',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey,
-                        ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
+              StreamBuilder<bool>(
+                stream: _offlineQueueService.onlineStatusStream,
+                initialData: true,
+                builder: (context, snapshot) {
+                  final isOnline = snapshot.data ?? true;
+                  final color = isOnline ? AppColors.info : AppColors.warning;
 
-              // Incident Type
-              Text(
-                'Incident Type',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              ModernTextField(
-                label: 'Incident Type',
-                hint: 'e.g., Theft, Fire, Accident',
-                controller: _typeController,
-                prefixIcon: Icons.category_outlined,
-                validator: (v) => (v == null || v.trim().isEmpty)
-                    ? 'Please enter incident type'
-                    : null,
-              ),
-              const SizedBox(height: 20),
-
-              // Description
-              Text(
-                'Description',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              ModernTextField(
-                label: 'Detailed Description',
-                hint: 'Describe what happened in detail...',
-                controller: _descriptionController,
-                prefixIcon: Icons.description_outlined,
-                maxLines: 5,
-                minLines: 3,
-                validator: (v) => (v == null || v.trim().isEmpty)
-                    ? 'Please enter a description'
-                    : null,
-              ),
-              const SizedBox(height: 20),
-
-              // Location
-              Text(
-                'Location',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ModernTextField(
-                          label: 'Incident Location',
-                          hint: 'Where did this happen?',
-                          controller: _locationController,
-                          prefixIcon: Icons.location_on_outlined,
-                          validator: (v) => (v == null || v.trim().isEmpty)
-                              ? 'Please enter location'
-                              : null,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      GestureDetector(
-                        onTap: _gettingLocation ? null : _getCurrentLocation,
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: _gettingLocation
-                                ? Colors.grey.withOpacity(0.2)
-                                : Colors.purple.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.purple.shade300,
-                              width: 1.5,
-                            ),
-                          ),
-                          child: _gettingLocation
-                              ? SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation(
-                                      Colors.purple.shade400,
-                                    ),
-                                  ),
-                                )
-                              : Icon(
-                                  Icons.my_location,
-                                  color: Colors.purple.shade600,
-                                  size: 24,
-                                ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_currentPosition != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: Colors.green.shade300,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.check_circle,
-                              color: Colors.green,
-                              size: 18,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Location auto-tagged: $_autoLocationName',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                      color: Colors.green.shade700,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                  return Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: AppSpacing.section),
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.12),
+                      borderRadius: AppRadii.large,
+                      border: Border.all(color: color.withValues(alpha: 0.24)),
                     ),
-                ],
-              ),
-              const SizedBox(height: 20),
-
-              // Date Picker
-              Text(
-                'Incident Date',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              GestureDetector(
-                onTap: _pickDate,
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade300),
-                    borderRadius: BorderRadius.circular(12),
-                    color: Colors.grey.shade50,
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(
-                          Icons.calendar_today_outlined,
-                          color: Colors.blue,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'When did this occur?',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(color: Colors.grey),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _incidentDate != null
-                                  ? _incidentDate!
-                                      .toLocal()
-                                      .toString()
-                                      .split(' ')[0]
-                                  : 'Select a date',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyLarge
-                                  ?.copyWith(fontWeight: FontWeight.w600),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(
-                        Icons.arrow_forward_ios,
-                        size: 16,
-                        color: Colors.grey.shade400,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Image Section
-              Text(
-                'Evidence (Optional)',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              if (_imageFiles.isEmpty)
-                Row(
-                  children: [
-                    Expanded(
-                      child: InkWell(
-                        onTap: _pickImage,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 16, horizontal: 12),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: Colors.blue.shade300,
-                              width: 2,
-                              style: BorderStyle.solid,
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                            color: Colors.blue.withOpacity(0.05),
-                          ),
-                          child: Column(
-                            children: [
-                              Icon(
-                                Icons.image_outlined,
-                                size: 28,
-                                color: Colors.blue,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'From Gallery',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                      color: Colors.blue,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: InkWell(
-                        onTap: _takePhoto,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 16, horizontal: 12),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: Colors.green.shade300,
-                              width: 2,
-                              style: BorderStyle.solid,
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                            color: Colors.green.withOpacity(0.05),
-                          ),
-                          child: Column(
-                            children: [
-                              Icon(
-                                Icons.camera_alt_outlined,
-                                size: 28,
-                                color: Colors.green,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Take Photo',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                      color: Colors.green,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                )
-              else
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                      ),
-                      itemCount: _imageFiles.length,
-                      itemBuilder: (context, index) {
-                        return Stack(
-                          children: [
-                            ModernCard(
-                              padding: EdgeInsets.zero,
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: Image.file(
-                                  _imageFiles[index],
-                                  width: double.infinity,
-                                  height: double.infinity,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                            ),
-                            Positioned(
-                              top: 8,
-                              right: 8,
-                              child: GestureDetector(
-                                onTap: () {
-                                  HapticFeedback.lightImpact();
-                                  setState(() {
-                                    _imageFiles.removeAt(index);
-                                  });
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.withOpacity(0.9),
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: const Icon(
-                                    Icons.close,
-                                    color: Colors.white,
-                                    size: 16,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        InkWell(
-                          onTap: _pickImage,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 10, horizontal: 16),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: Colors.blue.shade300,
-                                width: 1,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.add_photo_alternate,
-                                  size: 18,
-                                  color: Colors.blue.shade600,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Add More',
-                                  style: TextStyle(
-                                    color: Colors.blue.shade600,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                        Icon(
+                          isOnline
+                              ? Icons.cloud_done_outlined
+                              : Icons.cloud_off_outlined,
+                          color: color,
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${_imageFiles.length} image${_imageFiles.length != 1 ? 's' : ''} selected',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.grey,
-                              ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: Text(
+                            widget.forceOffline
+                                ? 'Offline reporting mode is active. Submitting now will save the report on this device and sync it when internet returns.'
+                                : isOnline
+                                ? 'You can still report even if the internet drops. We will save the report on this device and sync it later if needed.'
+                                : 'You are offline. Submitting now will save the report on this device and automatically sync it when internet returns.',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: AppColors.textPrimary),
+                          ),
                         ),
                       ],
                     ),
-                  ],
-                ),
-              const SizedBox(height: 24),
-
-              // Video Section
+                  );
+                },
+              ),
               Text(
-                'Video Evidence (Optional)',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+                'Incident details',
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Capture the essential details first, then add evidence if available.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textSecondary,
                 ),
               ),
-              const SizedBox(height: 8),
-              if (_videoFile == null)
-                Row(
+              const SizedBox(height: AppSpacing.section),
+              _FormSection(
+                title: 'Basic Information',
+                description: 'Tell us what happened and when it happened.',
+                child: Column(
                   children: [
-                    Expanded(
-                      child: InkWell(
-                        onTap: _pickVideo,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 16, horizontal: 12),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: Colors.orange.shade300,
-                              width: 2,
-                              style: BorderStyle.solid,
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                            color: Colors.orange.withOpacity(0.05),
-                          ),
-                          child: Column(
-                            children: [
-                              Icon(
-                                Icons.video_library_outlined,
-                                size: 28,
-                                color: Colors.orange,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'From Gallery',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                      color: Colors.orange,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                    ModernTextField(
+                      label: 'Incident Type',
+                      hint: 'e.g. Fire, Injury, Equipment damage',
+                      controller: _typeController,
+                      prefixIcon: Icons.category_outlined,
+                      validator: (value) =>
+                          (value == null || value.trim().isEmpty)
+                          ? 'Please enter the incident type.'
+                          : null,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: InkWell(
-                        onTap: _recordVideo,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 16, horizontal: 12),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: Colors.red.shade300,
-                              width: 2,
-                              style: BorderStyle.solid,
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                            color: Colors.red.withOpacity(0.05),
-                          ),
-                          child: Column(
-                            children: [
-                              Icon(
-                                Icons.videocam_outlined,
-                                size: 28,
-                                color: Colors.red,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Record Video',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                      color: Colors.red,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                    const SizedBox(height: AppSpacing.lg),
+                    ModernTextField(
+                      label: 'Description',
+                      hint:
+                          'Describe what happened, who was involved, and any immediate risks.',
+                      controller: _descriptionController,
+                      prefixIcon: Icons.description_outlined,
+                      minLines: 4,
+                      maxLines: 6,
+                      validator: (value) =>
+                          (value == null || value.trim().isEmpty)
+                          ? 'Please enter a description.'
+                          : null,
                     ),
-                  ],
-                )
-              else
-                ModernCard(
-                  padding: EdgeInsets.zero,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: double.infinity,
-                        height: 220,
-                        decoration: BoxDecoration(
-                          color: Colors.black87,
-                          borderRadius: const BorderRadius.only(
-                            topLeft: Radius.circular(16),
-                            topRight: Radius.circular(16),
-                          ),
-                        ),
-                        child: Stack(
-                          alignment: Alignment.center,
+                    const SizedBox(height: AppSpacing.lg),
+                    _ResponsiveFields(
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(
-                              Icons.video_library,
-                              size: 64,
-                              color: Colors.orange.shade300,
+                            ModernTextField(
+                              label: 'Location',
+                              hint: 'Where did this happen?',
+                              controller: _locationController,
+                              prefixIcon: Icons.location_on_outlined,
+                              validator: (value) =>
+                                  (value == null || value.trim().isEmpty)
+                                  ? 'Please enter the location.'
+                                  : null,
                             ),
-                            Positioned(
-                              bottom: 12,
-                              right: 12,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.red.withOpacity(0.8),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(
-                                      Icons.fiber_manual_record,
-                                      color: Colors.white,
-                                      size: 8,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      'Video Ready',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                            const SizedBox(height: AppSpacing.sm),
+                            Text(
+                              _currentPosition != null
+                                  ? 'Auto-tagged coordinates: $_autoLocationName'
+                                  : 'Use the locate button to auto-fill coordinates.',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: _currentPosition != null
+                                        ? AppColors.success
+                                        : AppColors.textSecondary,
+                                  ),
                             ),
                           ],
                         ),
+                        _ActionTile(
+                          title: _gettingLocation
+                              ? 'Locating...'
+                              : 'Use current location',
+                          subtitle: 'Requests location permission if needed',
+                          icon: _gettingLocation
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.my_location_rounded,
+                                  color: AppColors.primary,
+                                ),
+                          onTap: _gettingLocation ? null : _getCurrentLocation,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    _ActionTile(
+                      title: 'Incident date',
+                      subtitle: _formatDate(_incidentDate),
+                      icon: const Icon(
+                        Icons.calendar_today_outlined,
+                        color: AppColors.primary,
                       ),
-                      Padding(
-                        padding: const EdgeInsets.all(12),
+                      onTap: _pickDate,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.section),
+              _FormSection(
+                title: 'Photo Evidence',
+                description: 'Add images that help explain the incident.',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _ResponsiveFields(
+                      children: [
+                        _ActionTile(
+                          title: 'Upload from gallery',
+                          subtitle: 'Select one or more photos',
+                          icon: const Icon(
+                            Icons.image_outlined,
+                            color: AppColors.info,
+                          ),
+                          onTap: _pickImage,
+                        ),
+                        _ActionTile(
+                          title: 'Take a photo',
+                          subtitle: 'Use the camera now',
+                          icon: const Icon(
+                            Icons.camera_alt_outlined,
+                            color: AppColors.success,
+                          ),
+                          onTap: _takePhoto,
+                        ),
+                      ],
+                    ),
+                    if (_imageFiles.isNotEmpty) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: _imageFiles.length,
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              crossAxisSpacing: AppSpacing.md,
+                              mainAxisSpacing: AppSpacing.md,
+                              childAspectRatio: 1.15,
+                            ),
+                        itemBuilder: (context, index) {
+                          return Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: AppRadii.large,
+                                child: Image.file(
+                                  _imageFiles[index],
+                                  fit: BoxFit.cover,
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                ),
+                              ),
+                              Positioned(
+                                top: 8,
+                                right: 8,
+                                child: Material(
+                                  color: AppColors.error,
+                                  shape: const CircleBorder(),
+                                  child: InkWell(
+                                    customBorder: const CircleBorder(),
+                                    onTap: () {
+                                      HapticFeedback.lightImpact();
+                                      setState(
+                                        () => _imageFiles.removeAt(index),
+                                      );
+                                    },
+                                    child: const Padding(
+                                      padding: EdgeInsets.all(6),
+                                      child: Icon(
+                                        Icons.close_rounded,
+                                        color: Colors.white,
+                                        size: 16,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.section),
+              _FormSection(
+                title: 'Video Evidence',
+                description: 'Optional video footage for additional context.',
+                child: Column(
+                  children: [
+                    _ResponsiveFields(
+                      children: [
+                        _ActionTile(
+                          title: 'Choose video',
+                          subtitle: 'Attach a video from gallery',
+                          icon: const Icon(
+                            Icons.video_library_outlined,
+                            color: AppColors.warning,
+                          ),
+                          onTap: _pickVideo,
+                        ),
+                        _ActionTile(
+                          title: 'Record video',
+                          subtitle: 'Capture a short clip',
+                          icon: const Icon(
+                            Icons.videocam_outlined,
+                            color: AppColors.error,
+                          ),
+                          onTap: _recordVideo,
+                        ),
+                      ],
+                    ),
+                    if (_videoFile != null) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      AppSectionCard(
                         child: Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.all(8),
+                              padding: const EdgeInsets.all(AppSpacing.md),
                               decoration: BoxDecoration(
-                                color: Colors.green.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(8),
+                                color: AppColors.warning.withValues(
+                                  alpha: 0.12,
+                                ),
+                                borderRadius: AppRadii.medium,
                               ),
                               child: const Icon(
-                                Icons.check_circle,
-                                color: Colors.green,
-                                size: 20,
+                                Icons.video_file_outlined,
+                                color: AppColors.warning,
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: AppSpacing.md),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Video recorded',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(fontWeight: FontWeight.w600),
+                                    _videoFile!.path
+                                        .split(Platform.pathSeparator)
+                                        .last,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.titleSmall,
                                   ),
+                                  const SizedBox(height: 4),
                                   Text(
-                                    'Video evidence for the incident',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall
-                                        ?.copyWith(color: Colors.grey),
+                                    'Video ready to upload',
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
+                                          color: AppColors.textSecondary,
+                                        ),
                                   ),
                                 ],
                               ),
                             ),
-                            GestureDetector(
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                setState(() {
-                                  _videoFile = null;
-                                });
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Colors.red.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Icon(
-                                  Icons.close,
-                                  color: Colors.red.shade600,
-                                  size: 20,
-                                ),
-                              ),
+                            IconButton(
+                              onPressed: () =>
+                                  setState(() => _videoFile = null),
+                              icon: const Icon(Icons.delete_outline_rounded),
                             ),
                           ],
                         ),
                       ),
                     ],
-                  ),
+                  ],
                 ),
-              const SizedBox(height: 32),
-              ModernButton(
-                label: _submitting ? 'Submitting...' : 'Submit Report',
-                onPressed: _submitting ? () {} : _submitIncident,
-                isLoading: _submitting,
-                icon: Icons.send_rounded,
-                width: double.infinity,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: AppSpacing.section),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _submitting ? null : _submitIncident,
+                  icon: _submitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        )
+                      : const Icon(Icons.send_rounded),
+                  label: Text(_submitting ? 'Submitting...' : 'Submit Report'),
+                ),
+              ),
             ],
           ),
         ),
@@ -1022,9 +783,124 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
   }
 }
 
-// Legacy ReporterPage - kept for backward compatibility
+class _FormSection extends StatelessWidget {
+  final String title;
+  final String description;
+  final Widget child;
+
+  const _FormSection({
+    required this.title,
+    required this.description,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            description,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _ActionTile extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final Widget icon;
+  final VoidCallback? onTap;
+
+  const _ActionTile({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surfaceRaised,
+      borderRadius: AppRadii.large,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: AppRadii.large,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Row(
+            children: [
+              icon,
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ResponsiveFields extends StatelessWidget {
+  final List<Widget> children;
+
+  const _ResponsiveFields({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final isWide = MediaQuery.of(context).size.width >= 720;
+    if (!isWide) {
+      return Column(
+        children: [
+          for (int i = 0; i < children.length; i++) ...[
+            children[i],
+            if (i != children.length - 1) const SizedBox(height: AppSpacing.md),
+          ],
+        ],
+      );
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (int i = 0; i < children.length; i++) ...[
+          Expanded(child: children[i]),
+          if (i != children.length - 1) const SizedBox(width: AppSpacing.md),
+        ],
+      ],
+    );
+  }
+}
+
 class ReporterPage extends StatefulWidget {
   final User user;
+
   const ReporterPage({super.key, required this.user});
 
   @override
@@ -1068,7 +944,9 @@ class _ReporterPageState extends State<ReporterPage> {
           onPressed: () {
             Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (context) => ReportIncidentForm(user: widget.user),
+                builder: (context) => ReportIncidentForm(
+                  reporter: ReporterIdentity.fromFirebaseUser(widget.user),
+                ),
               ),
             );
           },

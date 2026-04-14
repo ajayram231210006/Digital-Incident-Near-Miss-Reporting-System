@@ -1,9 +1,39 @@
 import 'package:flutter/material.dart';
+import 'app_theme.dart';
+
+enum AppSnackBarType { success, error, info }
+
+void showAppSnackBar(
+  BuildContext context,
+  String message, {
+  AppSnackBarType type = AppSnackBarType.info,
+}) {
+  final (Color background, IconData icon) = switch (type) {
+    AppSnackBarType.success => (AppColors.success, Icons.check_circle_outline),
+    AppSnackBarType.error => (AppColors.error, Icons.error_outline),
+    AppSnackBarType.info => (AppColors.primary, Icons.info_outline),
+  };
+
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        backgroundColor: background,
+        content: Row(
+          children: [
+            Icon(icon, color: Colors.white, size: 18),
+            const SizedBox(width: 10),
+            Expanded(child: Text(message)),
+          ],
+        ),
+      ),
+    );
+}
 
 /// Modern AppBar with gradient background and custom styling
 class ModernAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
-  final List<Color> gradientColors;
+  final List<Color>? gradientColors;
   final VoidCallback? onBackPressed;
   final List<Widget>? actions;
 
@@ -20,28 +50,26 @@ class ModernAppBar extends StatelessWidget implements PreferredSizeWidget {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: gradientColors,
+          colors:
+              gradientColors ??
+              const [
+                AppColors.primaryDark,
+                AppColors.primary,
+                AppColors.secondary,
+              ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        boxShadow: AppShadows.subtle,
       ),
       child: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         title: Text(
           title,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
+          style: Theme.of(
+            context,
+          ).appBarTheme.titleTextStyle?.copyWith(color: Colors.white),
         ),
         leading: onBackPressed != null
             ? IconButton(
@@ -142,44 +170,35 @@ class _ModernTextFieldState extends State<ModernTextField>
           labelText: widget.label,
           hintText: widget.hint,
           prefixIcon: widget.prefixIcon != null
-              ? Icon(widget.prefixIcon, color: Colors.grey.shade600)
+              ? Icon(widget.prefixIcon, color: AppColors.textSecondary)
               : null,
           suffixIcon: widget.suffixIcon != null
               ? IconButton(
-                  icon: Icon(widget.suffixIcon, color: Colors.grey.shade600),
+                  icon: Icon(widget.suffixIcon, color: AppColors.textSecondary),
                   onPressed: widget.onSuffixIconPressed,
                 )
               : null,
-          filled: true,
-          fillColor: Colors.grey.shade100,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey.shade300),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey.shade300, width: 1.5),
-          ),
+          fillColor: AppColors.surfaceRaised,
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(
-              color: Colors.blue.shade500,
-              width: 2,
-            ),
+            borderRadius: AppRadii.medium,
+            borderSide: const BorderSide(color: AppColors.primary, width: 2),
           ),
           errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.red.shade500, width: 1.5),
+            borderRadius: AppRadii.medium,
+            borderSide: const BorderSide(color: AppColors.error, width: 1.5),
           ),
           focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.red.shade500, width: 2),
+            borderRadius: AppRadii.medium,
+            borderSide: const BorderSide(color: AppColors.error, width: 2),
           ),
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 16,
             vertical: 14,
           ),
-          labelStyle: const TextStyle(fontWeight: FontWeight.w500),
+          labelStyle: const TextStyle(
+            fontWeight: FontWeight.w500,
+            color: AppColors.textSecondary,
+          ),
         ),
       ),
     );
@@ -209,15 +228,13 @@ class ModernCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       elevation: elevation,
-      borderRadius: borderRadius ?? BorderRadius.circular(16),
-      color: backgroundColor ?? Colors.white,
+      shadowColor: AppColors.textPrimary.withValues(alpha: 0.14),
+      borderRadius: borderRadius ?? AppRadii.large,
+      color: backgroundColor ?? AppColors.surface,
       child: InkWell(
         onTap: onTap,
-        borderRadius: borderRadius ?? BorderRadius.circular(16),
-        child: Padding(
-          padding: padding,
-          child: child,
-        ),
+        borderRadius: borderRadius ?? AppRadii.large,
+        child: Padding(padding: padding, child: child),
       ),
     );
   }
@@ -283,10 +300,7 @@ class _ModernButtonState extends State<ModernButton>
 
   @override
   Widget build(BuildContext context) {
-    final defaultGradient = [
-      Colors.blue.shade400,
-      Colors.blue.shade600,
-    ];
+    final defaultGradient = [AppColors.primary, AppColors.secondary];
 
     return ScaleTransition(
       scale: Tween<double>(begin: 1.0, end: 0.95).animate(
@@ -313,14 +327,8 @@ class _ModernButtonState extends State<ModernButton>
                     end: Alignment.bottomRight,
                   ),
             color: widget.backgroundColor,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.blue.withOpacity(0.3),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            borderRadius: AppRadii.medium,
+            boxShadow: AppShadows.soft(AppColors.primary),
           ),
           child: Material(
             color: Colors.transparent,
@@ -331,7 +339,7 @@ class _ModernButtonState extends State<ModernButton>
                       height: 24,
                       child: CircularProgressIndicator(
                         valueColor: AlwaysStoppedAnimation<Color>(
-                          Colors.white.withOpacity(0.9),
+                          Colors.white.withValues(alpha: 0.9),
                         ),
                         strokeWidth: 2.5,
                       ),
@@ -341,18 +349,14 @@ class _ModernButtonState extends State<ModernButton>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         if (widget.icon != null)
-                          Icon(
-                            widget.icon,
-                            color: Colors.white,
-                            size: 20,
-                          ),
+                          Icon(widget.icon, color: Colors.white, size: 20),
                         if (widget.icon != null) const SizedBox(width: 8),
                         Text(
                           widget.label,
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 16,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ],
@@ -386,28 +390,25 @@ class ModernChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final baseColor = backgroundColor ?? AppColors.primary;
     return Material(
-      color: (backgroundColor ?? Colors.blue).withOpacity(0.1),
-      borderRadius: BorderRadius.circular(20),
+      color: baseColor.withValues(alpha: 0.1),
+      borderRadius: AppRadii.pill,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: AppRadii.pill,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (icon != null)
-                Icon(
-                  icon,
-                  size: 16,
-                  color: textColor ?? (backgroundColor ?? Colors.blue),
-                ),
+                Icon(icon, size: 16, color: textColor ?? baseColor),
               if (icon != null) const SizedBox(width: 6),
               Text(
                 label,
                 style: TextStyle(
-                  color: textColor ?? (backgroundColor ?? Colors.blue),
+                  color: textColor ?? baseColor,
                   fontWeight: FontWeight.w600,
                   fontSize: 13,
                 ),
@@ -419,11 +420,212 @@ class ModernChip extends StatelessWidget {
                   child: Icon(
                     Icons.close,
                     size: 16,
-                    color: textColor ?? (backgroundColor ?? Colors.blue),
+                    color: textColor ?? baseColor,
                   ),
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class AppSectionCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsets? padding;
+
+  const AppSectionCard({super.key, required this.child, this.padding});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadii.large,
+        border: Border.all(color: AppColors.outline),
+        boxShadow: AppShadows.subtle,
+      ),
+      child: Padding(
+        padding: padding ?? const EdgeInsets.all(AppSpacing.lg),
+        child: child,
+      ),
+    );
+  }
+}
+
+class AppStatusBadge extends StatelessWidget {
+  final String status;
+
+  const AppStatusBadge({super.key, required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final style = AppStatus.resolve(status);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: style.color.withValues(alpha: 0.12),
+        borderRadius: AppRadii.pill,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(style.icon, size: 12, color: style.color),
+          const SizedBox(width: 6),
+          Text(
+            status.toUpperCase(),
+            style: TextStyle(
+              color: style.color,
+              fontWeight: FontWeight.w700,
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AppPriorityBadge extends StatelessWidget {
+  final String? priority;
+
+  const AppPriorityBadge({super.key, this.priority});
+
+  @override
+  Widget build(BuildContext context) {
+    final style = AppPriority.resolve(priority);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: style.color.withValues(alpha: 0.12),
+        borderRadius: AppRadii.pill,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(style.icon, size: 12, color: style.color),
+          const SizedBox(width: 6),
+          Text(
+            style.label.toUpperCase(),
+            style: TextStyle(
+              color: style.color,
+              fontWeight: FontWeight.w700,
+              fontSize: 11,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AppEmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String description;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  const AppEmptyState({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.description,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xxl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 32, color: AppColors.primary),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              description,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
+              textAlign: TextAlign.center,
+            ),
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: AppSpacing.lg),
+              OutlinedButton.icon(
+                onPressed: onAction,
+                icon: const Icon(Icons.refresh_rounded),
+                label: Text(actionLabel!),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class AppSkeletonBox extends StatefulWidget {
+  final double height;
+  final double? width;
+  final BorderRadius? borderRadius;
+
+  const AppSkeletonBox({
+    super.key,
+    required this.height,
+    this.width,
+    this.borderRadius,
+  });
+
+  @override
+  State<AppSkeletonBox> createState() => _AppSkeletonBoxState();
+}
+
+class _AppSkeletonBoxState extends State<AppSkeletonBox>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: Tween<double>(begin: 0.45, end: 1).animate(_controller),
+      child: Container(
+        width: widget.width,
+        height: widget.height,
+        decoration: BoxDecoration(
+          color: AppColors.surfaceMuted,
+          borderRadius: widget.borderRadius ?? AppRadii.medium,
         ),
       ),
     );

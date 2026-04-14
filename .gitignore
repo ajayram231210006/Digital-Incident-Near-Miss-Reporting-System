@@ -1,4 +1,4 @@
-# Miscellaneous
+# General
 *.class
 *.log
 *.pyc
@@ -12,41 +12,64 @@
 .swiftpm/
 migrate_working_dir/
 
-# IntelliJ related
+# IDEs and editors
+.idea/
+.vscode/
 *.iml
 *.ipr
 *.iws
-.idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
-
-# Flutter/Dart/Pub related
+# Flutter and Dart
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.flutter-plugins
 .flutter-plugins-dependencies
-.pub-cache/
 .pub/
+.pub-cache/
 /build/
 /coverage/
+/android/app/debug/
+/android/app/profile/
+/android/app/release/
+ios/Flutter/flutter_export_environment.sh
+macos/Flutter/ephemeral/
+linux/flutter/ephemeral/
+windows/flutter/ephemeral/
 
-# Symbolication related
-app.*.symbols
-
-# Obfuscation related
-app.*.map.json
-
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
-
-*.json
-local-push-sender/service-account.json
-
-# Node modules
+# Node
 node_modules/
+functions/node_modules/
 local-push-sender/node_modules/
+
+# Firebase and local tooling
+.firebase/
+.firebaserc.local
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+release-artifacts/
+
+# Credentials and environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+service-account.json
+local-push-sender/service-account.json
+functions/.runtimeconfig.json
+google-services-dev.json
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+macos/Runner/GoogleService-Info.plist
+
+# Generated app bundles and symbol maps
+*.apk
+*.aab
+app.*.symbols
+app.*.map.json

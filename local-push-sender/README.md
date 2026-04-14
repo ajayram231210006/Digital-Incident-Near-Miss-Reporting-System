@@ -33,7 +33,10 @@ npm.cmd install
 
 ### 3. Set the service account path
 
-For the current PowerShell session:
+If your key is saved as `local-push-sender\service-account.json`, the script now
+finds it automatically and you can skip this step.
+
+If your key is stored somewhere else, set the path for the current PowerShell session:
 
 ```powershell
 $env:GOOGLE_APPLICATION_CREDENTIALS="C:\Users\ajayram_231210006\Digital-Incident-Near-Miss-Reporting-System\local-push-sender\service-account.json"

@@ -29,24 +29,36 @@ This guide explains how the new **Admin Approval System** works in your Incident
 
 ### 1. Create Your First Admin Account
 
-**Step 1:** Run the app and click "Sign up"
+Admin signup is disabled unless the app is started with a build-time
+`ADMIN_SIGNUP_CODE` value.
 
-**Step 2:** Fill in the form:
+**Option A: Run from terminal**
+
+```bash
+flutter run --dart-define=ADMIN_SIGNUP_CODE=CHANGE_ME_ADMIN_CODE
+```
+
+**Option B: Run from VS Code**
+
+Use the included launch configuration in `.vscode/launch.json`, then replace the
+sample code with your own local admin code before running.
+
+**Step 1:** Start the app with `ADMIN_SIGNUP_CODE` configured
+
+**Step 2:** Click "Sign up" and fill in the form:
 - First Name: Your name
 - Last Name: Your name
 - Email: Your email
 - Password: Your password
 - Role: Select **"Admin"**
-- Admin Code: Enter `ADMIN_SETUP_2024`
+- Admin Code: Enter the same code you passed in `ADMIN_SIGNUP_CODE`
 
 **Step 3:** Click "Sign Up"
 
 ✅ Your admin account is now active and you can login immediately!
 
-> ⚠️ **IMPORTANT:** Change the admin code in [lib/login.dart](lib/login.dart) line ~614:
-> ```dart
-> const validAdminCode = 'YOUR_SECRET_CODE_HERE';
-> ```
+> ⚠️ **IMPORTANT:** Do not commit a real production admin code to git. Keep it in
+> your local run configuration or pass it with `flutter run --dart-define=...`.
 
 ---
 
@@ -232,7 +244,15 @@ User profile stored at `/users/{uid}/`:
 ## Troubleshooting
 
 ### Problem: "Invalid admin code" error
-**Solution:** Confirm you're using the correct admin code from [lib/login.dart](lib/login.dart) line ~614
+**Solution:** Confirm the signup form code exactly matches the value passed with
+`--dart-define=ADMIN_SIGNUP_CODE=...`
+
+### Problem: "Admin sign-up is disabled in this build" error
+**Solution:** Restart the app with:
+
+```bash
+flutter run --dart-define=ADMIN_SIGNUP_CODE=YOUR_SECRET_CODE
+```
 
 ### Problem: Supervisor can't login after approval
 **Solution:** 

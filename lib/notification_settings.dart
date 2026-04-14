@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'app_theme.dart';
 import 'notification_service.dart';
 
 class NotificationSettings extends StatefulWidget {
@@ -19,7 +20,7 @@ class _NotificationSettingsState extends State<NotificationSettings> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Notifications'),
-        backgroundColor: Colors.blue,
+        backgroundColor: AppColors.primary,
         actions: [
           Padding(
             padding: const EdgeInsets.all(8.0),
@@ -47,7 +48,7 @@ class _NotificationSettingsState extends State<NotificationSettings> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.error, color: Colors.red, size: 48),
+                  const Icon(Icons.error, color: AppColors.error, size: 48),
                   const SizedBox(height: 16),
                   Text('Error: ${snapshot.error}'),
                 ],
@@ -68,7 +69,7 @@ class _NotificationSettingsState extends State<NotificationSettings> {
                   Icon(
                     Icons.notifications_none,
                     size: 64,
-                    color: Colors.grey[400],
+                    color: AppColors.outline,
                   ),
                   const SizedBox(height: 16),
                   Text(
@@ -77,7 +78,7 @@ class _NotificationSettingsState extends State<NotificationSettings> {
                         : 'No notifications yet',
                     style: TextStyle(
                       fontSize: 16,
-                      color: Colors.grey[600],
+                      color: AppColors.textSecondary,
                     ),
                   ),
                 ],
@@ -93,7 +94,7 @@ class _NotificationSettingsState extends State<NotificationSettings> {
               final timestamp = notification['timestamp'] ?? '';
               final timeStr = timestamp.isNotEmpty
                   ? DateTime.tryParse(timestamp)?.toString().substring(0, 16) ??
-                      'Unknown time'
+                        'Unknown time'
                   : 'Unknown time';
 
               return Dismissible(
@@ -106,22 +107,27 @@ class _NotificationSettingsState extends State<NotificationSettings> {
                   );
                 },
                 background: Container(
-                  color: Colors.red,
+                  color: AppColors.error,
                   alignment: Alignment.centerRight,
                   padding: const EdgeInsets.only(right: 16),
                   child: const Icon(Icons.delete, color: Colors.white),
                 ),
                 child: Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   child: ListTile(
                     leading: Icon(
                       Icons.notifications,
-                      color: isRead ? Colors.grey : Colors.blue,
+                      color: isRead ? AppColors.textSecondary : AppColors.info,
                     ),
                     title: Text(
                       notification['title'] ?? 'Notification',
                       style: TextStyle(
-                        fontWeight: isRead ? FontWeight.normal : FontWeight.bold,
+                        fontWeight: isRead
+                            ? FontWeight.normal
+                            : FontWeight.bold,
                       ),
                     ),
                     subtitle: Column(
@@ -134,7 +140,7 @@ class _NotificationSettingsState extends State<NotificationSettings> {
                           timeStr,
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.grey[600],
+                            color: AppColors.textSecondary,
                           ),
                         ),
                       ],
@@ -145,7 +151,7 @@ class _NotificationSettingsState extends State<NotificationSettings> {
                             height: 12,
                             decoration: const BoxDecoration(
                               shape: BoxShape.circle,
-                              color: Colors.blue,
+                              color: AppColors.info,
                             ),
                           )
                         : null,

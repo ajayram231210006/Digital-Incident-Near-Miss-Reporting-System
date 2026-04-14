@@ -13,6 +13,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   firebase_core: ^4.4.0
   firebase_auth: ^6.1.4
+  firebase_ai: ^3.9.0
   firebase_storage: ^13.0.6
   firebase_messaging: ^16.1.1
   image_picker: ^1.0.4
@@ -21,9 +22,13 @@ dependencies:
   cloudinary_public: ^0.23.1
   fl_chart: ^0.68.0
   flutter_local_notifications: ^17.0.0
-  flutter_app_badger: ^1.5.0
+  app_badge_plus: ^1.2.7
   geolocator: ^12.0.0
   video_player: ^2.8.0
+  shared_preferences: ^2.5.3
+  connectivity_plus: ^6.1.5
+  path_provider: ^2.1.5
+  path: ^1.9.1
 
 dev_dependencies:
   flutter_test:
@@ -34,7 +39,18 @@ dev_dependencies:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
+  web:
+    generate: true
+    image_path: "assets/icon/launcher_icon.png"
+  windows:
+    generate: true
+    image_path: "assets/icon/launcher_icon.png"
+    icon_size: 48
+  macos:
+    generate: true
+    image_path: "assets/icon/launcher_icon.png"
   image_path: "assets/icon/launcher_icon.png"
+  remove_alpha_ios: true
   adaptive_icon_background: "#FFFFFF"
   adaptive_icon_foreground: "assets/icon/launcher_icon.png"
 

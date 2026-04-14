@@ -1,7 +1,10 @@
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/material.dart';
+
+import 'app_theme.dart';
+import 'ui_components.dart';
 
 class ReporterTrendsWidget extends StatefulWidget {
   final User user;
@@ -14,21 +17,15 @@ class ReporterTrendsWidget extends StatefulWidget {
 
 class _ReporterTrendsWidgetState extends State<ReporterTrendsWidget> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
-  final bool _isWeekly = true;
 
   Stream<Map<String, int>> _getTrendsStream() {
     return _dbRef.child('incidents').onValue.map((event) {
-      final Map<String, int> trendData = {};
+      final trendData = <String, int>{};
       final now = DateTime.now();
 
-      // Initialize data for last 7 days (weekly) or 12 months (yearly)
-      if (_isWeekly) {
-        for (int i = 6; i >= 0; i--) {
-          final date = now.subtract(Duration(days: i));
-          final key =
-              '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-          trendData[key] = 0;
-        }
+      for (int i = 6; i >= 0; i--) {
+        final date = now.subtract(Duration(days: i));
+        trendData[_dateKey(date)] = 0;
       }
 
       if (!event.snapshot.exists) {
@@ -36,37 +33,25 @@ class _ReporterTrendsWidgetState extends State<ReporterTrendsWidget> {
       }
 
       final data = event.snapshot.value as Map?;
-      if (data != null) {
-        data.forEach((key, value) {
-          if (value is Map) {
-            final reporterUid = value['reporterUid']?.toString() ?? '';
-            if (reporterUid == widget.user.uid) {
-              try {
-                final dateStr = value['date']?.toString() ?? '';
-                if (dateStr.isNotEmpty) {
-                  final date = DateTime.parse(dateStr);
-                  final reportKey = _isWeekly
-                      ? '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}'
-                      : '${date.year}-${date.month.toString().padLeft(2, '0')}';
+      data?.forEach((key, value) {
+        if (value is! Map) return;
+        if (value['reporterUid']?.toString() != widget.user.uid) return;
 
-                  if (_isWeekly) {
-                    final daysDiff =
-                        now.difference(date).inDays;
-                    if (daysDiff >= 0 && daysDiff < 7) {
-                      trendData[reportKey] = (trendData[reportKey] ?? 0) + 1;
-                    }
-                  }
-                }
-              } catch (e) {
-                // Handle date parsing errors
-              }
-            }
-          }
-        });
-      }
+        final date = DateTime.tryParse(value['date']?.toString() ?? '');
+        if (date == null) return;
+
+        final keyString = _dateKey(date);
+        if (trendData.containsKey(keyString)) {
+          trendData[keyString] = (trendData[keyString] ?? 0) + 1;
+        }
+      });
 
       return trendData;
     });
+  }
+
+  String _dateKey(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -75,250 +60,240 @@ class _ReporterTrendsWidgetState extends State<ReporterTrendsWidget> {
       stream: _getTrendsStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        if (!snapshot.hasData) {
-          return const SizedBox.shrink();
+          return const AppSectionCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AppSkeletonBox(height: 18, width: 160),
+                SizedBox(height: AppSpacing.lg),
+                AppSkeletonBox(height: 220),
+              ],
+            ),
+          );
         }
 
         final trendData = snapshot.data ?? {};
-        final spots = <FlSpot>[];
         final labels = <String>[];
+        final spots = <FlSpot>[];
+        final values = <double>[];
 
-        if (_isWeekly) {
-          final now = DateTime.now();
-          for (int i = 0; i < 7; i++) {
-            final date = now.subtract(Duration(days: 6 - i));
-            final key =
-                '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-            final count = trendData[key] ?? 0;
-            spots.add(FlSpot(i.toDouble(), count.toDouble()));
-            labels.add(_getDayLabel(i));
-          }
+        for (int i = 0; i < 7; i++) {
+          final date = DateTime.now().subtract(Duration(days: 6 - i));
+          final count = (trendData[_dateKey(date)] ?? 0).toDouble();
+          labels.add(_weekdayLabel(date.weekday));
+          values.add(count);
+          spots.add(FlSpot(i.toDouble(), count));
         }
 
-        final maxY = spots.isEmpty ? 5.0 : spots.map((e) => e.y).reduce((a, b) => a > b ? a : b) + 2;
+        final totalThisWeek = values.fold<double>(
+          0,
+          (sum, value) => sum + value,
+        );
+        final maxValue = values.isEmpty
+            ? 0.0
+            : values.reduce((a, b) => a > b ? a : b);
+        final maxY = maxValue <= 0 ? 1.0 : maxValue + 1;
+        final average = totalThisWeek / 7;
 
-        return Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.blue.withValues(alpha: 0.1),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
+        return AppSectionCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Submission trends',
+                style: Theme.of(context).textTheme.titleMedium,
               ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Colors.white, Colors.grey.shade50],
-                ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Last 7 days',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
               ),
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Submission Trends',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Last 7 days',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                        ],
+              const SizedBox(height: AppSpacing.xl),
+              SizedBox(
+                height: 220,
+                child: LineChart(
+                  LineChartData(
+                    minX: 0,
+                    maxX: 6,
+                    minY: 0,
+                    maxY: maxY,
+                    clipData: const FlClipData.all(),
+                    gridData: FlGridData(
+                      show: true,
+                      drawVerticalLine: false,
+                      horizontalInterval: 1,
+                      getDrawingHorizontalLine: (value) => FlLine(
+                        color: AppColors.outline.withValues(alpha: 0.7),
+                        strokeWidth: 1,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  // Chart
-                  SizedBox(
-                    height: 220,
-                    child: LineChart(
-                      LineChartData(
-                        gridData: FlGridData(
-                          show: true,
-                          drawVerticalLine: false,
-                          horizontalInterval: 1,
-                          getDrawingHorizontalLine: (value) {
-                            return FlLine(
-                              color: Colors.grey.shade200,
-                              strokeWidth: 0.8,
+                    ),
+                    borderData: FlBorderData(
+                      show: true,
+                      border: Border(
+                        left: BorderSide(
+                          color: AppColors.outline.withValues(alpha: 0.8),
+                        ),
+                        bottom: BorderSide(
+                          color: AppColors.outline.withValues(alpha: 0.8),
+                        ),
+                      ),
+                    ),
+                    titlesData: FlTitlesData(
+                      topTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      rightTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 28,
+                          getTitlesWidget: (value, meta) {
+                            final index = value.toInt();
+                            if (index < 0 || index >= labels.length) {
+                              return const SizedBox.shrink();
+                            }
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                labels[index],
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(color: AppColors.textSecondary),
+                              ),
                             );
                           },
                         ),
-                        titlesData: FlTitlesData(
-                          show: true,
-                          bottomTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                              showTitles: true,
-                              reservedSize: 30,
-                              getTitlesWidget: (value, meta) {
-                                if (value.toInt() < labels.length) {
-                                  return Text(
-                                    labels[value.toInt()],
-                                    style: const TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.grey,
-                                    ),
-                                  );
-                                }
-                                return const SizedBox.shrink();
-                              },
-                            ),
-                          ),
-                          leftTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                              showTitles: true,
-                              reservedSize: 30,
-                              getTitlesWidget: (value, meta) {
-                                if (value == value.toInt()) {
-                                  return Text(
-                                    '${value.toInt()}',
-                                    style: const TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.grey,
-                                    ),
-                                  );
-                                }
-                                return const SizedBox.shrink();
-                              },
-                            ),
-                          ),
-                          topTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false),
-                          ),
-                          rightTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false),
-                          ),
+                      ),
+                      leftTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 24,
+                          interval: 1,
+                          getTitlesWidget: (value, meta) {
+                            return Text(
+                              value.toInt().toString(),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: AppColors.textSecondary),
+                            );
+                          },
                         ),
-                        borderData: FlBorderData(
-                          show: true,
-                          border: Border(
-                            bottom: BorderSide(
-                              color: Colors.grey.shade200,
-                              width: 0.8,
-                            ),
-                            left: BorderSide(
-                              color: Colors.grey.shade200,
-                              width: 0.8,
-                            ),
-                          ),
-                        ),
-                        minX: 0,
-                        maxX: (spots.length - 1).toDouble(),
-                        minY: 0,
-                        maxY: maxY,
-                        lineBarsData: [
-                          LineChartBarData(
-                            spots: spots,
-                            isCurved: true,
-                            color: Colors.blue.shade400,
-                            barWidth: 3,
-                            belowBarData: BarAreaData(
-                              show: true,
-                              color: Colors.blue.withValues(alpha: 0.1),
-                            ),
-                            dotData: FlDotData(
-                              show: true,
-                              getDotPainter: (spot, percent, barData, index) {
-                                return FlDotCirclePainter(
-                                  radius: 5,
-                                  color: Colors.blue.shade400,
-                                  strokeWidth: 2,
-                                  strokeColor: Colors.white,
-                                );
-                              },
-                            ),
-                          ),
-                        ],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  // Stats Row
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _TrendStatBox(
-                          label: 'This Week',
-                          value: spots
-                              .fold<int>(0, (sum, spot) => sum + spot.y.toInt())
-                              .toString(),
-                          icon: Icons.trending_up,
-                          color: Colors.blue,
-                        ),
+                    lineTouchData: LineTouchData(
+                      touchTooltipData: LineTouchTooltipData(
+                        fitInsideHorizontally: true,
+                        fitInsideVertically: true,
+                        getTooltipItems: (items) {
+                          return items.map((item) {
+                            return LineTooltipItem(
+                              '${labels[item.x.toInt()]}\n${item.y.toInt()} submissions',
+                              const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            );
+                          }).toList();
+                        },
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _TrendStatBox(
-                          label: 'Avg/Day',
-                          value: (spots.isEmpty
-                                  ? 0
-                                  : spots
-                                          .fold<int>(
-                                              0,
-                                              (sum, spot) =>
-                                                  sum +
-                                                  spot.y
-                                                      .toInt())
-                                          .toDouble() /
-                                      7)
-                              .toStringAsFixed(1),
-                          icon: Icons.show_chart,
-                          color: Colors.green,
+                    ),
+                    lineBarsData: [
+                      LineChartBarData(
+                        spots: spots,
+                        isCurved: maxValue > 0,
+                        curveSmoothness: maxValue > 0 ? 0.25 : 0,
+                        preventCurveOverShooting: true,
+                        color: AppColors.primary,
+                        barWidth: 3,
+                        isStrokeCapRound: true,
+                        belowBarData: BarAreaData(
+                          show: true,
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              AppColors.primary.withValues(alpha: 0.18),
+                              AppColors.primary.withValues(alpha: 0.02),
+                            ],
+                          ),
+                        ),
+                        dotData: FlDotData(
+                          show: true,
+                          getDotPainter: (spot, percent, barData, index) {
+                            final isActive = spot.y > 0;
+                            return FlDotCirclePainter(
+                              radius: isActive ? 4 : 3,
+                              color: isActive
+                                  ? AppColors.primary
+                                  : AppColors.surfaceMuted,
+                              strokeWidth: 2,
+                              strokeColor: Colors.white,
+                            );
+                          },
                         ),
                       ),
                     ],
                   ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Row(
+                children: [
+                  Expanded(
+                    child: _TrendSummary(
+                      label: 'This week',
+                      value: totalThisWeek.toInt().toString(),
+                      icon: Icons.insights_outlined,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: _TrendSummary(
+                      label: 'Avg / day',
+                      value: average.toStringAsFixed(1),
+                      icon: Icons.show_chart_rounded,
+                      color: AppColors.secondary,
+                    ),
+                  ),
                 ],
               ),
-            ),
+            ],
           ),
         );
       },
     );
   }
 
-  String _getDayLabel(int index) {
-    final now = DateTime.now();
-    final date = now.subtract(Duration(days: 6 - index));
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    return days[date.weekday % 7];
+  String _weekdayLabel(int weekday) {
+    switch (weekday) {
+      case DateTime.monday:
+        return 'Mon';
+      case DateTime.tuesday:
+        return 'Tue';
+      case DateTime.wednesday:
+        return 'Wed';
+      case DateTime.thursday:
+        return 'Thu';
+      case DateTime.friday:
+        return 'Fri';
+      case DateTime.saturday:
+        return 'Sat';
+      default:
+        return 'Sun';
+    }
   }
 }
 
-// Stat Box Widget
-class _TrendStatBox extends StatelessWidget {
+class _TrendSummary extends StatelessWidget {
   final String label;
   final String value;
   final IconData icon;
   final Color color;
 
-  const _TrendStatBox({
+  const _TrendSummary({
     required this.label,
     required this.value,
     required this.icon,
@@ -328,37 +303,38 @@ class _TrendStatBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
+        color: color.withValues(alpha: 0.08),
+        borderRadius: AppRadii.medium,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.sm),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: AppRadii.small,
+            ),
+            child: Icon(icon, size: 18, color: color),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, size: 16, color: color),
-              const SizedBox(width: 6),
               Text(
                 label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.grey.shade700,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+              ),
+              Text(
+                value,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(color: color),
               ),
             ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
           ),
         ],
       ),

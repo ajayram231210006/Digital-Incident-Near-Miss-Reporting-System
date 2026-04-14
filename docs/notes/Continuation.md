@@ -1,0 +1,1 @@
+because i stopped you in between because you were taking too much time so did the whatever command you were running manually and pasted the output over here to see.Now proceed with your further steps to make maximum of it.

@@ -1,0 +1,166 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "users": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active'",
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || (root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active'))",
+        ".write": "auth != null && (((root.child('users').child(auth.uid).child('role').val() === 'admin') && root.child('users').child(auth.uid).child('status').val() === 'active') || (auth.uid === $uid && ((!data.exists() && newData.hasChildren(['email', 'firstName', 'lastName', 'role', 'status', 'createdAt'])) || (data.exists() && newData.child('role').val() === data.child('role').val() && newData.child('status').val() === data.child('status').val() && newData.child('createdAt').val() === data.child('createdAt').val()))))",
+
+        "role": {
+          ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active'",
+          ".validate": "newData.isString() && (newData.val() === 'reporter' || newData.val() === 'supervisor' || newData.val() === 'admin')"
+        },
+
+        "status": {
+          ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active'",
+          ".validate": "newData.isString() && (newData.val() === 'pending' || newData.val() === 'pending_approval' || newData.val() === 'active' || newData.val() === 'inactive' || newData.val() === 'rejected')"
+        },
+
+        "email": {
+          ".validate": "newData.isString()"
+        },
+
+        "firstName": {
+          ".validate": "newData.isString()"
+        },
+
+        "lastName": {
+          ".validate": "newData.isString()"
+        },
+
+        "createdAt": {
+          ".validate": "newData.isString()"
+        },
+
+        "fcmToken": {
+          ".read": "auth != null && (auth.uid === $uid || (root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active'))",
+          ".write": "auth != null && (auth.uid === $uid || (root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active'))",
+          ".validate": "newData.val() === null || newData.isString()"
+        }
+      }
+    },
+
+    "roleDirectory": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active'",
+      "reporters": {
+        "$uid": {
+          ".write": "auth != null && (((root.child('users').child(auth.uid).child('role').val() === 'admin') && root.child('users').child(auth.uid).child('status').val() === 'active') || (auth.uid === $uid && root.child('users').child(auth.uid).child('role').val() === 'reporter' && root.child('users').child(auth.uid).child('status').val() === 'active'))",
+          ".validate": "newData.val() === null || newData.isBoolean()"
+        }
+      },
+      "supervisors": {
+        "$uid": {
+          ".write": "auth != null && (((root.child('users').child(auth.uid).child('role').val() === 'admin') && root.child('users').child(auth.uid).child('status').val() === 'active') || (auth.uid === $uid && root.child('users').child(auth.uid).child('role').val() === 'supervisor' && root.child('users').child(auth.uid).child('status').val() === 'active'))",
+          ".validate": "newData.val() === null || newData.isBoolean()"
+        }
+      }
+    },
+
+    "incidents": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active'",
+      "$incidentId": {
+        ".read": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active'",
+        ".write": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && ((!data.exists() && newData.child('reporterUid').val() === auth.uid && root.child('users').child(auth.uid).child('role').val() === 'reporter') || root.child('users').child(auth.uid).child('role').val() === 'supervisor' || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+
+        "createdAt": {
+          ".validate": "newData.isString()"
+        },
+
+        "date": {
+          ".validate": "newData.isString()"
+        },
+
+        "description": {
+          ".validate": "newData.isString()"
+        },
+
+        "imageUrl": {
+          ".validate": "newData.val() === null || newData.isString()"
+        },
+
+        "lastModified": {
+          ".validate": "newData.val() === null || newData.isString()"
+        },
+
+        "location": {
+          ".validate": "newData.isString()"
+        },
+
+        "notes": {
+          ".validate": "newData.val() === null || newData.isString()"
+        },
+
+        "reporterEmail": {
+          ".validate": "newData.isString()"
+        },
+
+        "reporterUid": {
+          ".validate": "newData.isString() && (!data.exists() ? newData.val() === auth.uid : newData.val() === data.val())"
+        },
+
+        "severity": {
+          ".validate": "newData.val() === null || (newData.isString() && (newData.val() === '' || newData.val() === 'low' || newData.val() === 'medium' || newData.val() === 'high' || newData.val() === 'critical'))"
+        },
+
+        "status": {
+          ".validate": "newData.isString() && (newData.val() === 'open' || newData.val() === 'active' || newData.val() === 'closed')"
+        },
+
+        "type": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 100"
+        }
+      }
+    },
+
+    "incidentReadStatus": {
+      "$uid": {
+        ".read": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        "$incidentId": {
+          ".validate": "newData.hasChildren(['read', 'readAt']) && newData.child('read').isBoolean() && newData.child('readAt').isString()"
+        }
+      }
+    },
+
+    "notificationPreferences": {
+      "$uid": {
+        ".read": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+      }
+    },
+
+    "notificationTokens": {
+      "$uid": {
+        ".read": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        "token": {
+          ".validate": "newData.val() === null || newData.isString()"
+        },
+        "updatedAt": {
+          ".validate": "newData.val() === null || newData.isString()"
+        }
+      }
+    },
+
+    "notificationDedupes": {
+      "$uid": {
+        ".read": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'supervisor')",
+        "$dedupeId": {
+          ".write": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'supervisor')"
+        }
+      }
+    },
+
+    "userNotifications": {
+      "$uid": {
+        ".read": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        "$notificationId": {
+          ".write": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'supervisor' || (!data.exists() && root.child('users').child(auth.uid).exists()))"
+        }
+      }
+    }
+  }
+}

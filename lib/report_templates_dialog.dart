@@ -1,6 +1,10 @@
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+
+import 'app_theme.dart';
 import 'reporter.dart' show ReportIncidentForm;
+import 'reporter_identity.dart';
+import 'ui_components.dart';
 
 class ReportTemplatesDialog extends StatefulWidget {
   final User user;
@@ -12,130 +16,146 @@ class ReportTemplatesDialog extends StatefulWidget {
 }
 
 class _ReportTemplatesDialogState extends State<ReportTemplatesDialog> {
-  final List<_ReportTemplate> templates = [
+  late final List<_ReportTemplate> templates = [
     _ReportTemplate(
       id: 'safety_hazard',
       name: 'Safety Hazard',
       icon: Icons.warning_amber_rounded,
-      color: Colors.red,
-      description: 'Report unsafe conditions or equipment hazards',
-      prefillData: {
-        'type': 'Safety Hazard',
-      },
+      color: AppColors.warning,
+      description: 'Unsafe conditions, exposed risks, or damaged equipment.',
     ),
     _ReportTemplate(
       id: 'near_miss',
       name: 'Near Miss',
-      icon: Icons.close_fullscreen_rounded,
-      color: Colors.orange,
-      description: 'Report incidents where injury could have occurred',
-      prefillData: {
-        'type': 'Near Miss',
-      },
+      icon: Icons.shield_outlined,
+      color: AppColors.info,
+      description: 'An event that could have caused harm but did not.',
     ),
     _ReportTemplate(
       id: 'accident',
-      name: 'Accident/Injury',
-      icon: Icons.medical_information_rounded,
-      color: Colors.pink,
-      description: 'Report workplace accidents or injuries',
-      prefillData: {
-        'type': 'Accident/Injury',
-      },
+      name: 'Accident / Injury',
+      icon: Icons.medical_services_outlined,
+      color: AppColors.error,
+      description: 'Injuries, accidents, or emergency medical situations.',
     ),
     _ReportTemplate(
       id: 'property_damage',
       name: 'Property Damage',
       icon: Icons.home_repair_service_rounded,
-      color: Colors.amber,
-      description: 'Report damage to equipment or property',
-      prefillData: {
-        'type': 'Property Damage',
-      },
+      color: AppColors.secondary,
+      description: 'Damage to vehicles, tools, equipment, or facilities.',
     ),
     _ReportTemplate(
       id: 'environmental',
-      name: 'Environmental Issue',
+      name: 'Environmental',
       icon: Icons.eco_rounded,
-      color: Colors.green,
-      description: 'Report environmental or spillage incidents',
-      prefillData: {
-        'type': 'Environmental Issue',
-      },
+      color: AppColors.success,
+      description: 'Spills, emissions, or environment-related incidents.',
     ),
     _ReportTemplate(
       id: 'other',
       name: 'Other',
-      icon: Icons.description_rounded,
-      color: Colors.grey,
-      description: 'Report other incidents or concerns',
-      prefillData: {
-        'type': 'Other Incident',
-      },
+      icon: Icons.description_outlined,
+      color: AppColors.textSecondary,
+      description: 'A general template for anything outside standard types.',
     ),
   ];
 
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final crossAxisCount = width >= 900 ? 3 : 2;
+    final aspectRatio = switch (width) {
+      < 380 => 0.66,
+      < 520 => 0.74,
+      < 900 => 0.84,
+      _ => 0.94,
+    };
+
     return Dialog(
-      insetPadding: const EdgeInsets.all(16),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Quick Report Templates'),
-          elevation: 0,
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black87,
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(24),
-              topRight: Radius.circular(24),
-            ),
-          ),
-        ),
-        body: GridView.builder(
-          padding: const EdgeInsets.all(16),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            childAspectRatio: 1,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-          ),
-          itemCount: templates.length,
-          itemBuilder: (context, index) {
-            final template = templates[index];
-            return _TemplateCard(
-              template: template,
-              onTap: () async {
-                Navigator.pop(context);
-                await Future.delayed(const Duration(milliseconds: 300));
-                if (context.mounted) {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          ReportIncidentForm(user: widget.user),
+      insetPadding: const EdgeInsets.all(AppSpacing.lg),
+      shape: RoundedRectangleBorder(borderRadius: AppRadii.xl),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 720, maxHeight: 640),
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Quick report templates',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: AppSpacing.xs),
+                        Text(
+                          'Choose a starting point to speed up report entry.',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(color: AppColors.textSecondary),
+                        ),
+                      ],
                     ),
-                  );
-                }
-              },
-            );
-          },
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Expanded(
+                child: GridView.builder(
+                  itemCount: templates.length,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: crossAxisCount,
+                    crossAxisSpacing: AppSpacing.md,
+                    mainAxisSpacing: AppSpacing.md,
+                    childAspectRatio: aspectRatio,
+                  ),
+                  itemBuilder: (context, index) {
+                    final template = templates[index];
+                    return _TemplateCard(
+                      template: template,
+                      onTap: () async {
+                        Navigator.of(context).pop();
+                        await Future<void>.delayed(
+                          const Duration(milliseconds: 180),
+                        );
+                        if (context.mounted) {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  ReportIncidentForm(
+                                    reporter: ReporterIdentity.fromFirebaseUser(
+                                      widget.user,
+                                    ),
+                                  ),
+                            ),
+                          );
+                        }
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-// Template Card Widget
 class _TemplateCard extends StatefulWidget {
   final _ReportTemplate template;
   final VoidCallback onTap;
 
-  const _TemplateCard({
-    required this.template,
-    required this.onTap,
-  });
+  const _TemplateCard({required this.template, required this.onTap});
 
   @override
   State<_TemplateCard> createState() => _TemplateCardState();
@@ -143,18 +163,14 @@ class _TemplateCard extends StatefulWidget {
 
 class _TemplateCardState extends State<_TemplateCard>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
+  late final AnimationController _controller;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 200),
       vsync: this,
-    );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+      duration: const Duration(milliseconds: 180),
     );
   }
 
@@ -166,102 +182,108 @@ class _TemplateCardState extends State<_TemplateCard>
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => _controller.forward(),
-      onTapUp: (_) {
-        _controller.reverse();
-        widget.onTap();
-      },
-      onTapCancel: () => _controller.reverse(),
-      child: ScaleTransition(
-        scale: _scaleAnimation,
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: widget.template.color.withValues(alpha: 0.15),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Colors.white, Colors.grey.shade50],
+    final color = widget.template.color;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 170;
+        final cardPadding = compact ? 12.0 : AppSpacing.lg;
+        final iconPadding = compact ? 10.0 : AppSpacing.md;
+        final descriptionLines = compact ? 4 : 3;
+
+        return ScaleTransition(
+          scale: Tween<double>(begin: 1, end: 0.97).animate(_controller),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: widget.onTap,
+              onTapDown: (_) => _controller.forward(),
+              onTapUp: (_) => _controller.reverse(),
+              onTapCancel: _controller.reverse,
+              borderRadius: AppRadii.large,
+              child: AppSectionCard(
+                padding: EdgeInsets.all(cardPadding),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: EdgeInsets.all(iconPadding),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.12),
+                        borderRadius: AppRadii.medium,
+                      ),
+                      child: Icon(
+                        widget.template.icon,
+                        color: color,
+                        size: compact ? 22 : 26,
+                      ),
+                    ),
+                    SizedBox(height: compact ? 12 : AppSpacing.lg),
+                    Text(
+                      widget.template.name,
+                      maxLines: compact ? 2 : 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        widget.template.description,
+                        maxLines: descriptionLines,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.textSecondary,
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Use template',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(
+                              context,
+                            ).textTheme.labelLarge?.copyWith(
+                              color: color,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Icon(
+                          Icons.arrow_forward_rounded,
+                          color: color,
+                          size: 18,
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              ),
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  // Icon
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: widget.template.color.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Icon(
-                      widget.template.icon,
-                      size: 32,
-                      color: widget.template.color,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Name
-                  Text(
-                    widget.template.name,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  // Description
-                  Text(
-                    widget.template.description,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey.shade600,
-                      height: 1.3,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
 
-// Template Model
 class _ReportTemplate {
   final String id;
   final String name;
   final IconData icon;
   final Color color;
   final String description;
-  final Map<String, dynamic> prefillData;
 
-  _ReportTemplate({
+  const _ReportTemplate({
     required this.id,
     required this.name,
     required this.icon,
     required this.color,
     required this.description,
-    required this.prefillData,
   });
 }

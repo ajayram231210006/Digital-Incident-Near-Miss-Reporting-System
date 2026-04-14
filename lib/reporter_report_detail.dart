@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_theme.dart';
 import 'image_viewer.dart';
 
 class ReporterReportDetail extends StatelessWidget {
@@ -14,17 +15,14 @@ class ReporterReportDetail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = (report['status'] ?? 'open').toString().toLowerCase();
-    final statusColor = status == 'closed'
-        ? Colors.green
-        : status == 'active'
-            ? Colors.orange
-            : Colors.amber;
+    final statusStyle = AppStatus.resolve(status);
+    final statusColor = statusStyle.color;
 
     // Convert Firebase Map to List (Firebase stores lists as Maps with numeric keys)
     final imageParams = report['imageUrls'];
-    final imageUrlsList = imageParams is List 
-      ? List<String>.from(imageParams.whereType<String>())
-      : imageParams is Map 
+    final imageUrlsList = imageParams is List
+        ? List<String>.from(imageParams.whereType<String>())
+        : imageParams is Map
         ? imageParams.values.whereType<String>().toList()
         : <String>[];
 
@@ -35,10 +33,7 @@ class ReporterReportDetail extends StatelessWidget {
         flexibleSpace: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [
-                statusColor,
-                statusColor.withValues(alpha: 0.7),
-              ],
+              colors: [statusColor, statusColor.withValues(alpha: 0.7)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -60,7 +55,10 @@ class ReporterReportDetail extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.category_outlined, color: Colors.blueAccent),
+                        const Icon(
+                          Icons.category_outlined,
+                          color: AppColors.info,
+                        ),
                         const SizedBox(width: 8),
                         Text(
                           'Incident Details',
@@ -72,8 +70,8 @@ class ReporterReportDetail extends StatelessWidget {
                     Text(
                       'Incident Type',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.grey,
-                          ),
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -84,8 +82,8 @@ class ReporterReportDetail extends StatelessWidget {
                     Text(
                       'Location',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.grey,
-                          ),
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -109,13 +107,15 @@ class ReporterReportDetail extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.calendar_month_outlined, color: Colors.orangeAccent),
+                        const Icon(
+                          Icons.calendar_month_outlined,
+                          color: AppColors.statusOpen,
+                        ),
                         const SizedBox(width: 8),
                         Text(
                           'Incident Date',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.grey,
-                              ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: AppColors.textSecondary),
                         ),
                       ],
                     ),
@@ -141,13 +141,15 @@ class ReporterReportDetail extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.access_time_outlined, color: Colors.blueAccent),
+                        const Icon(
+                          Icons.access_time_outlined,
+                          color: AppColors.info,
+                        ),
                         const SizedBox(width: 8),
                         Text(
                           'Report Submitted',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.grey,
-                              ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: AppColors.textSecondary),
                         ),
                       ],
                     ),
@@ -173,7 +175,10 @@ class ReporterReportDetail extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.description_outlined, color: Colors.greenAccent),
+                        const Icon(
+                          Icons.description_outlined,
+                          color: AppColors.success,
+                        ),
                         const SizedBox(width: 8),
                         Text(
                           'Description',
@@ -204,7 +209,10 @@ class ReporterReportDetail extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.image_outlined, color: Colors.purpleAccent),
+                          const Icon(
+                            Icons.image_outlined,
+                            color: AppColors.secondary,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             'Incident Images (${imageUrlsList.length})',
@@ -216,11 +224,12 @@ class ReporterReportDetail extends StatelessWidget {
                       GridView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          crossAxisSpacing: 8,
-                          mainAxisSpacing: 8,
-                        ),
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              crossAxisSpacing: 8,
+                              mainAxisSpacing: 8,
+                            ),
                         itemCount: imageUrlsList.length,
                         itemBuilder: (context, index) {
                           final imageUrl = imageUrlsList[index];
@@ -246,8 +255,10 @@ class ReporterReportDetail extends StatelessWidget {
                                     errorBuilder: (context, error, stackTrace) {
                                       return Container(
                                         decoration: BoxDecoration(
-                                          color: Colors.grey[300],
-                                          borderRadius: BorderRadius.circular(12),
+                                          color: AppColors.surfaceMuted,
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
                                         ),
                                         child: const Center(
                                           child: Icon(Icons.error),
@@ -297,7 +308,10 @@ class ReporterReportDetail extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.image_outlined, color: Colors.purpleAccent),
+                          const Icon(
+                            Icons.image_outlined,
+                            color: AppColors.secondary,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             'Incident Image',
@@ -330,7 +344,7 @@ class ReporterReportDetail extends StatelessWidget {
                                 return Container(
                                   height: 250,
                                   decoration: BoxDecoration(
-                                    color: Colors.grey[300],
+                                    color: AppColors.surfaceMuted,
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: const Center(
@@ -361,7 +375,10 @@ class ReporterReportDetail extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.video_library_outlined, color: Colors.orangeAccent),
+                          const Icon(
+                            Icons.video_library_outlined,
+                            color: AppColors.statusOpen,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             'Incident Video',
@@ -390,7 +407,7 @@ class ReporterReportDetail extends StatelessWidget {
                               height: 250,
                               width: double.infinity,
                               decoration: BoxDecoration(
-                                color: Colors.black87,
+                                color: AppColors.textPrimary,
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Stack(
@@ -399,7 +416,7 @@ class ReporterReportDetail extends StatelessWidget {
                                   Icon(
                                     Icons.video_library,
                                     size: 64,
-                                    color: Colors.orange.shade300,
+                                    color: AppColors.statusOpen,
                                   ),
                                   Positioned(
                                     right: 12,
@@ -410,7 +427,9 @@ class ReporterReportDetail extends StatelessWidget {
                                         vertical: 4,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Colors.red.withOpacity(0.8),
+                                        color: AppColors.error.withValues(
+                                          alpha: 0.88,
+                                        ),
                                         borderRadius: BorderRadius.circular(6),
                                       ),
                                       child: Row(
@@ -459,7 +478,10 @@ class ReporterReportDetail extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.assignment_outlined, color: Colors.redAccent),
+                        const Icon(
+                          Icons.assignment_outlined,
+                          color: AppColors.error,
+                        ),
                         const SizedBox(width: 8),
                         Text(
                           'Status',
@@ -469,14 +491,14 @@ class ReporterReportDetail extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         color: statusColor.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: statusColor,
-                          width: 1.5,
-                        ),
+                        border: Border.all(color: statusColor, width: 1.5),
                       ),
                       child: Row(
                         children: [
@@ -490,7 +512,7 @@ class ReporterReportDetail extends StatelessWidget {
                           ),
                           const SizedBox(width: 12),
                           Text(
-                            '${status[0].toUpperCase()}${status.substring(1)}',
+                            statusStyle.label,
                             style: TextStyle(
                               color: statusColor,
                               fontWeight: FontWeight.w600,
@@ -508,7 +530,8 @@ class ReporterReportDetail extends StatelessWidget {
             const SizedBox(height: 16),
 
             // Supervisor Notes
-            if (report['notes'] != null && (report['notes'] as String).isNotEmpty)
+            if (report['notes'] != null &&
+                (report['notes'] as String).isNotEmpty)
               Card(
                 elevation: 2,
                 child: Padding(
@@ -518,7 +541,10 @@ class ReporterReportDetail extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.note_outlined, color: Colors.tealAccent),
+                          const Icon(
+                            Icons.note_outlined,
+                            color: AppColors.secondary,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             'Supervisor Notes',
@@ -531,10 +557,10 @@ class ReporterReportDetail extends StatelessWidget {
                         width: double.infinity,
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.grey[100],
-                          borderRadius: BorderRadius.circular(8),
+                          color: AppColors.surfaceRaised,
+                          borderRadius: AppRadii.small,
                           border: Border.all(
-                            color: Colors.grey[300]!,
+                            color: AppColors.outline,
                             width: 1,
                           ),
                         ),

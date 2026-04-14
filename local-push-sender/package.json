@@ -1,0 +1,12 @@
+{
+  "name": "local-push-sender",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.4.0"
+  }
+}

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'app_theme.dart';
 
 class ActivityTimelineWidget extends StatefulWidget {
   final User user;
@@ -38,7 +39,9 @@ class _ActivityTimelineWidgetState extends State<ActivityTimelineWidget> {
                 activities.add({
                   'id': key,
                   'type': value['type'] ?? 'Unknown',
-                  'status': (value['status'] ?? 'open').toString().toLowerCase(),
+                  'status': (value['status'] ?? 'open')
+                      .toString()
+                      .toLowerCase(),
                   'date': date ?? DateTime.now(),
                   'description': value['description'] ?? 'No description',
                   'location': value['location'] ?? 'Unknown',
@@ -62,42 +65,15 @@ class _ActivityTimelineWidgetState extends State<ActivityTimelineWidget> {
   }
 
   Color _getStatusColor(String status) {
-    switch (status) {
-      case 'closed':
-        return Colors.green;
-      case 'active':
-        return Colors.orange;
-      case 'open':
-        return Colors.amber;
-      default:
-        return Colors.grey;
-    }
+    return AppStatus.resolve(status).color;
   }
 
   IconData _getStatusIcon(String status) {
-    switch (status) {
-      case 'closed':
-        return Icons.check_circle;
-      case 'active':
-        return Icons.schedule;
-      case 'open':
-        return Icons.hourglass_bottom;
-      default:
-        return Icons.info;
-    }
+    return AppStatus.resolve(status).icon;
   }
 
   String _getStatusLabel(String status) {
-    switch (status) {
-      case 'closed':
-        return 'Resolved';
-      case 'active':
-        return 'In Progress';
-      case 'open':
-        return 'Pending';
-      default:
-        return 'Unknown';
-    }
+    return AppStatus.resolve(status).label;
   }
 
   String _formatTime(DateTime date) {
@@ -134,36 +110,29 @@ class _ActivityTimelineWidgetState extends State<ActivityTimelineWidget> {
 
         return Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.purple.withValues(alpha: 0.1),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            borderRadius: AppRadii.large,
+            boxShadow: AppShadows.subtle,
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: AppRadii.large,
             child: Container(
               decoration: BoxDecoration(
-                gradient: LinearGradient(
+                gradient: const LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [Colors.white, Colors.grey.shade50],
+                  colors: [AppColors.surface, AppColors.surfaceRaised],
                 ),
               ),
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(18),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Header
                   Text(
                     'Recent Activity',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   // Timeline
@@ -175,15 +144,14 @@ class _ActivityTimelineWidgetState extends State<ActivityTimelineWidget> {
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       child: Container(
                         height: 1,
-                        color: Colors.grey.shade100,
+                        color: AppColors.outline.withValues(alpha: 0.45),
                       ),
                     ),
                     itemBuilder: (context, index) {
                       final activity = activities[index];
                       final statusColor = _getStatusColor(activity['status']);
                       final statusIcon = _getStatusIcon(activity['status']);
-                      final statusLabel =
-                          _getStatusLabel(activity['status']);
+                      final statusLabel = _getStatusLabel(activity['status']);
                       final timeStr = _formatTime(activity['date']);
 
                       return _ActivityTimelineItem(
@@ -245,22 +213,15 @@ class _ActivityTimelineItem extends StatelessWidget {
               decoration: BoxDecoration(
                 color: color,
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 2),
+                border: Border.all(color: AppColors.surface, width: 2),
                 boxShadow: [
-                  BoxShadow(
-                    color: color.withValues(alpha: 0.3),
-                    blurRadius: 4,
-                  ),
+                  BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 4),
                 ],
               ),
             ),
             // Line
             if (!isLast)
-              Container(
-                width: 2,
-                height: 60,
-                color: Colors.grey.shade200,
-              ),
+              Container(width: 2, height: 60, color: AppColors.outline),
           ],
         ),
         const SizedBox(width: 12),
@@ -292,7 +253,7 @@ class _ActivityTimelineItem extends StatelessWidget {
                             subtitle,
                             style: TextStyle(
                               fontSize: 12,
-                              color: Colors.grey.shade600,
+                              color: AppColors.textSecondary,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -327,7 +288,7 @@ class _ActivityTimelineItem extends StatelessWidget {
                   time,
                   style: TextStyle(
                     fontSize: 11,
-                    color: Colors.grey.shade500,
+                    color: AppColors.textSecondary,
                   ),
                 ),
               ],

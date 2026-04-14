@@ -6,9 +6,11 @@ const projectId = process.env.FIREBASE_PROJECT_ID || "users-3f3bd";
 const databaseURL =
   process.env.FIREBASE_DATABASE_URL ||
   "https://users-3f3bd-default-rtdb.firebaseio.com";
+const defaultServiceAccountPath = path.join(__dirname, "service-account.json");
 const serviceAccountPath =
   process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-  process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+  process.env.FIREBASE_SERVICE_ACCOUNT_PATH ||
+  defaultServiceAccountPath;
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS || 5000);
 
 if (!serviceAccountPath) {

@@ -1,8 +1,8 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:app_badge_plus/app_badge_plus.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_app_badger/flutter_app_badger.dart';
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:async';
@@ -17,24 +17,27 @@ class NotificationService {
 
   NotificationService._internal();
 
-  final FirebaseMessaging _messaging = FirebaseMessaging.instance;
-  final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
-  
+
   // Stream controllers for notification events
-  final _notificationTapStream = StreamController<Map<String, dynamic>>.broadcast();
+  final _notificationTapStream =
+      StreamController<Map<String, dynamic>>.broadcast();
   StreamSubscription<RemoteMessage>? _foregroundMessageSubscription;
   StreamSubscription<RemoteMessage>? _messageOpenedAppSubscription;
   StreamSubscription<String>? _tokenRefreshSubscription;
+  StreamSubscription<DatabaseEvent>? _databaseNotificationSubscription;
   bool _isInitialized = false;
   bool _isLocalNotificationsInitialized = false;
   String? _initializedUserId;
   Map<String, dynamic>? _pendingLaunchNotification;
   bool? _isAppBadgeSupported;
   final Map<String, int> _lastLoggedUnreadCounts = {};
-  
-  Stream<Map<String, dynamic>> get notificationTapStream => _notificationTapStream.stream;
+
+  Stream<Map<String, dynamic>> get notificationTapStream =>
+      _notificationTapStream.stream;
+  FirebaseMessaging get _messaging => FirebaseMessaging.instance;
+  DatabaseReference get _dbRef => FirebaseDatabase.instance.ref();
 
   Future<void> ensureLocalNotificationsInitialized() async {
     await _initializeLocalNotifications();
@@ -46,12 +49,11 @@ class NotificationService {
     }
 
     try {
-      _isAppBadgeSupported = await FlutterAppBadger.isAppBadgeSupported();
+      _isAppBadgeSupported = await AppBadgePlus.isSupported();
     } catch (e) {
       debugPrint('⚠️ Error checking app badge support: $e');
       _isAppBadgeSupported = false;
     }
-
     return _isAppBadgeSupported!;
   }
 
@@ -62,11 +64,7 @@ class NotificationService {
     }
 
     try {
-      if (unreadCount > 0) {
-        FlutterAppBadger.updateBadgeCount(unreadCount);
-      } else {
-        FlutterAppBadger.removeBadge();
-      }
+      AppBadgePlus.updateBadge(unreadCount);
     } catch (e) {
       debugPrint('⚠️ Error updating app badge count: $e');
     }
@@ -83,6 +81,7 @@ class NotificationService {
 
       if (_isInitialized && _initializedUserId == currentUser.uid) {
         await _saveFCMToken();
+        await _startDatabaseNotificationSync(currentUser.uid);
         return;
       }
 
@@ -112,14 +111,16 @@ class NotificationService {
         debugPrint('✅ User granted notification permission');
 
         await _saveFCMToken();
+        await _startDatabaseNotificationSync(currentUser.uid);
 
         await _foregroundMessageSubscription?.cancel();
-        _foregroundMessageSubscription =
-            FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+        _foregroundMessageSubscription = FirebaseMessaging.onMessage.listen(
+          _handleForegroundMessage,
+        );
 
         await _messageOpenedAppSubscription?.cancel();
-        _messageOpenedAppSubscription =
-            FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
+        _messageOpenedAppSubscription = FirebaseMessaging.onMessageOpenedApp
+            .listen(_handleNotificationTap);
 
         await _tokenRefreshSubscription?.cancel();
         _tokenRefreshSubscription = _messaging.onTokenRefresh.listen((_) {
@@ -152,13 +153,13 @@ class NotificationService {
     try {
       const AndroidInitializationSettings androidSettings =
           AndroidInitializationSettings('@mipmap/ic_launcher');
-      
+
       const DarwinInitializationSettings iosSettings =
           DarwinInitializationSettings(
-        requestAlertPermission: true,
-        requestBadgePermission: true,
-        requestSoundPermission: true,
-      );
+            requestAlertPermission: true,
+            requestBadgePermission: true,
+            requestSoundPermission: true,
+          );
 
       const InitializationSettings initSettings = InitializationSettings(
         android: androidSettings,
@@ -180,33 +181,34 @@ class NotificationService {
       // High priority channel for important notifications
       const AndroidNotificationChannel highPriorityChannel =
           AndroidNotificationChannel(
-        'high_importance_channel',
-        'High Importance Notifications',
-        description: 'This channel is used for important notifications.',
-        importance: Importance.max,
-        showBadge: true,
-        enableVibration: true,
-        enableLights: true,
-        playSound: true,
-      );
+            'high_importance_channel',
+            'High Importance Notifications',
+            description: 'This channel is used for important notifications.',
+            importance: Importance.max,
+            showBadge: true,
+            enableVibration: true,
+            enableLights: true,
+            playSound: true,
+          );
 
       // Default channel with system sound
       const AndroidNotificationChannel defaultChannel =
           AndroidNotificationChannel(
-        'default_channel',
-        'Default Notifications',
-        description: 'Default notification channel.',
-        importance: Importance.high,
-        showBadge: true,
-        enableVibration: true,
-        enableLights: true,
-        playSound: true,
-      );
+            'default_channel',
+            'Default Notifications',
+            description: 'Default notification channel.',
+            importance: Importance.high,
+            showBadge: true,
+            enableVibration: true,
+            enableLights: true,
+            playSound: true,
+          );
 
       final AndroidFlutterLocalNotificationsPlugin? androidPlugin =
           _localNotifications
               .resolvePlatformSpecificImplementation<
-                  AndroidFlutterLocalNotificationsPlugin>();
+                AndroidFlutterLocalNotificationsPlugin
+              >();
 
       if (androidPlugin != null) {
         await androidPlugin.createNotificationChannel(highPriorityChannel);
@@ -233,15 +235,12 @@ class NotificationService {
               .child(user.uid)
               .child('fcmToken')
               .set(token);
-          
+
           // Also store in notificationTokens for easy querying
-          await _dbRef
-              .child('notificationTokens')
-              .child(user.uid)
-              .set({
-                'token': token,
-                'updatedAt': DateTime.now().toIso8601String(),
-              });
+          await _dbRef.child('notificationTokens').child(user.uid).set({
+            'token': token,
+            'updatedAt': DateTime.now().toIso8601String(),
+          });
           debugPrint('✅ FCM token saved successfully');
         }
       }
@@ -252,13 +251,16 @@ class NotificationService {
 
   /// Handle foreground messages
   void _handleForegroundMessage(RemoteMessage message) {
-    debugPrint('📬 Received foreground message: ${message.notification?.title}');
+    debugPrint(
+      '📬 Received foreground message: ${message.notification?.title}',
+    );
 
     showNotificationFromRemoteMessage(message);
   }
 
   Future<void> showNotificationFromRemoteMessage(RemoteMessage message) async {
-    final title = message.notification?.title ??
+    final title =
+        message.notification?.title ??
         message.data['title']?.toString() ??
         'Notification';
     final body =
@@ -297,27 +299,28 @@ class NotificationService {
     int? unreadCount,
   }) async {
     try {
-      // Use system default sound and create visual notification with full visibility  
+      // Use system default sound and create visual notification with full visibility
       final AndroidNotificationDetails androidDetails =
           AndroidNotificationDetails(
-        'high_importance_channel',
-        'High Importance Notifications',
-        channelDescription: 'This channel is used for important notifications.',
-        channelShowBadge: true,
-        importance: Importance.max,
-        priority: Priority.high,
-        enableVibration: true,
-        enableLights: true,
-        vibrationPattern: Int64List.fromList([0, 500, 250, 500]),
-        ledColor: const Color.fromARGB(255, 255, 0, 0),
-        playSound: true,
-        styleInformation: BigTextStyleInformation(body),
-        autoCancel: true,
-        showWhen: true,
-        visibility: NotificationVisibility.public,
-        number: unreadCount,
-        onlyAlertOnce: false,
-      );
+            'high_importance_channel',
+            'High Importance Notifications',
+            channelDescription:
+                'This channel is used for important notifications.',
+            channelShowBadge: true,
+            importance: Importance.max,
+            priority: Priority.high,
+            enableVibration: true,
+            enableLights: true,
+            vibrationPattern: Int64List.fromList([0, 500, 250, 500]),
+            ledColor: const Color.fromARGB(255, 255, 0, 0),
+            playSound: true,
+            styleInformation: BigTextStyleInformation(body),
+            autoCancel: true,
+            showWhen: true,
+            visibility: NotificationVisibility.public,
+            number: unreadCount,
+            onlyAlertOnce: false,
+          );
 
       final DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
         presentAlert: true,
@@ -332,9 +335,10 @@ class NotificationService {
       );
 
       // Use a unique ID so Android keeps notifications separate in the tray.
-      final notificationId =
-          DateTime.now().microsecondsSinceEpoch.remainder(2147483647);
-      
+      final notificationId = DateTime.now().microsecondsSinceEpoch.remainder(
+        2147483647,
+      );
+
       await _localNotifications.show(
         notificationId.abs(),
         title,
@@ -357,7 +361,7 @@ class NotificationService {
     bool storeForLater = false,
   }) {
     debugPrint('🔗 Notification tapped: ${message.messageId}');
-    
+
     // Emit notification tap event with data for navigation
     Map<String, dynamic> tapData = {
       'reportId': message.data['reportId'] ?? '',
@@ -368,7 +372,7 @@ class NotificationService {
       'messageId': message.messageId ?? '',
       'timestamp': DateTime.now().toIso8601String(),
     };
-    
+
     if (storeForLater) {
       _pendingLaunchNotification = tapData;
     }
@@ -393,15 +397,73 @@ class NotificationService {
         return decoded;
       }
       if (decoded is Map) {
-        return decoded.map(
-          (key, value) => MapEntry(key.toString(), value),
-        );
+        return decoded.map((key, value) => MapEntry(key.toString(), value));
       }
     } catch (e) {
       debugPrint('⚠️ Unable to parse notification payload: $e');
     }
 
     return <String, dynamic>{'payload': payload};
+  }
+
+  Future<void> _startDatabaseNotificationSync(String userId) async {
+    await _databaseNotificationSubscription?.cancel();
+
+    _databaseNotificationSubscription = _dbRef
+        .child('userNotifications')
+        .child(userId)
+        .onValue
+        .listen((event) async {
+          final unreadCount = await _getUnreadCountSnapshot(userId);
+          await updateAppBadgeCount(unreadCount);
+        });
+  }
+
+  Future<bool> saveNotificationForUser({
+    required String userId,
+    required Map<String, dynamic> notificationData,
+    String? dedupeKey,
+    Duration dedupeWindow = const Duration(minutes: 2),
+  }) async {
+    final normalizedDedupeKey = dedupeKey?.trim() ?? '';
+    final payload = <String, dynamic>{
+      ...notificationData,
+      if (normalizedDedupeKey.isNotEmpty) 'dedupeKey': normalizedDedupeKey,
+    };
+
+    if (normalizedDedupeKey.isNotEmpty) {
+      final dedupeId = base64Url
+          .encode(utf8.encode(normalizedDedupeKey))
+          .replaceAll('=', '');
+      final dedupeRef = _dbRef
+          .child('notificationDedupes')
+          .child(userId)
+          .child(dedupeId);
+      final snapshot = await dedupeRef.get();
+      final now = DateTime.now();
+
+      if (snapshot.exists && snapshot.value is Map) {
+        final dedupeData = Map<String, dynamic>.from(snapshot.value as Map);
+        final timestamp = DateTime.tryParse(
+          dedupeData['timestamp']?.toString() ?? '',
+        );
+        if (timestamp != null &&
+            now.difference(timestamp).abs() <= dedupeWindow) {
+          debugPrint(
+            '⚠️ Skipping duplicate notification for $userId with key $normalizedDedupeKey',
+          );
+          return false;
+        }
+      }
+
+      await dedupeRef.set({
+        'dedupeKey': normalizedDedupeKey,
+        'timestamp': now.toIso8601String(),
+      });
+    }
+
+    await _dbRef.child('userNotifications').child(userId).push().set(payload);
+    return true;
   }
 
   /// Mark an incident report as read by a supervisor
@@ -414,11 +476,10 @@ class NotificationService {
           .child('incidentReadStatus')
           .child(supervisorUid)
           .child(incidentId)
-          .set({
-            'read': true,
-            'readAt': DateTime.now().toIso8601String(),
-          });
-      debugPrint('✅ Incident $incidentId marked as read by supervisor $supervisorUid');
+          .set({'read': true, 'readAt': DateTime.now().toIso8601String()});
+      debugPrint(
+        '✅ Incident $incidentId marked as read by supervisor $supervisorUid',
+      );
     } catch (e) {
       debugPrint('❌ Error marking incident as read: $e');
     }
@@ -435,7 +496,8 @@ class NotificationService {
           .child(supervisorUid)
           .child(incidentId)
           .get();
-      return snapshot.exists && (snapshot.value as Map?)?.containsKey('read') == true;
+      return snapshot.exists &&
+          (snapshot.value as Map?)?.containsKey('read') == true;
     } catch (e) {
       debugPrint('❌ Error checking if incident was read: $e');
       return false;
@@ -542,7 +604,14 @@ class NotificationService {
     int notifiedCount = 0;
     try {
       debugPrint('📢 Fetching supervisors to notify about new report...');
-      
+      final normalizedSeverity = severity.trim();
+      final hasVisibleSeverity =
+          normalizedSeverity.isNotEmpty &&
+          normalizedSeverity.toLowerCase() != 'not set';
+      final notificationBody = hasVisibleSeverity
+          ? '$reportType - $reportTitle by $reporterName (Severity: $normalizedSeverity)'
+          : '$reportType - $reportTitle by $reporterName';
+
       // Get all supervisors
       var supervisorUids = await getAllSupervisors();
       debugPrint('Found ${supervisorUids.length} supervisors');
@@ -550,13 +619,17 @@ class NotificationService {
 
       // Fallback: if no supervisors found, notify ALL users
       if (supervisorUids.isEmpty) {
-        debugPrint('⚠️ No supervisors found! Attempting fallback: notifying all users');
+        debugPrint(
+          '⚠️ No supervisors found! Attempting fallback: notifying all users',
+        );
         try {
           final usersSnapshot = await _dbRef.child('users').get();
           if (usersSnapshot.exists && usersSnapshot.value is Map) {
             final usersMap = usersSnapshot.value as Map;
             supervisorUids = usersMap.keys.map((e) => e.toString()).toList();
-            debugPrint('📣 Fallback: Found ${supervisorUids.length} total users to notify');
+            debugPrint(
+              '📣 Fallback: Found ${supervisorUids.length} total users to notify',
+            );
           }
         } catch (fallbackError) {
           debugPrint('⚠️ Fallback also failed: $fallbackError');
@@ -566,9 +639,9 @@ class NotificationService {
       for (String supervisorUid in supervisorUids) {
         final notificationData = {
           'title': 'New Incident Report',
-          'body': '$reportType - $reportTitle by $reporterName (Severity: $severity)',
+          'body': notificationBody,
           'reportId': reportId,
-          'severity': severity,
+          if (hasVisibleSeverity) 'severity': normalizedSeverity,
           'reporterName': reporterName,
           'timestamp': DateTime.now().toIso8601String(),
           'read': false,
@@ -580,15 +653,17 @@ class NotificationService {
               .child(supervisorUid)
               .push()
               .set(notificationData);
-          
+
           debugPrint('✅ Notification saved for supervisor: $supervisorUid');
           notifiedCount++;
         } catch (e) {
           debugPrint('❌ Error notifying supervisor $supervisorUid: $e');
         }
       }
-      
-      debugPrint('✅ New report notification sent to $notifiedCount supervisors');
+
+      debugPrint(
+        '✅ New report notification sent to $notifiedCount supervisors',
+      );
       return notifiedCount;
     } catch (e) {
       debugPrint('❌ Error notifying supervisors: $e');
@@ -604,8 +679,10 @@ class NotificationService {
     required String newStatus,
   }) async {
     try {
-      debugPrint('📢 Notifying supervisor about update - UID: $supervisorUid, Report: $reportId');
-      
+      debugPrint(
+        '📢 Notifying supervisor about update - UID: $supervisorUid, Report: $reportId',
+      );
+
       if (supervisorUid.isEmpty) {
         debugPrint('❌ Supervisor UID is empty! Cannot send notification.');
         return false;
@@ -644,8 +721,10 @@ class NotificationService {
     required String supervisorName,
   }) async {
     try {
-      debugPrint('📢 Attempting to notify reporter - UID: $reporterUid, Report: $reportId');
-      
+      debugPrint(
+        '📢 Attempting to notify reporter - UID: $reporterUid, Report: $reportId',
+      );
+
       if (reporterUid.isEmpty) {
         debugPrint('❌ Reporter UID is empty! Cannot send notification.');
         return false;
@@ -658,7 +737,9 @@ class NotificationService {
           .child('fcmToken')
           .get();
 
-      debugPrint('🔍 FCM Token check - Exists: ${tokenSnapshot.exists}, Value: ${tokenSnapshot.value}');
+      debugPrint(
+        '🔍 FCM Token check - Exists: ${tokenSnapshot.exists}, Value: ${tokenSnapshot.value}',
+      );
 
       final notificationData = {
         'title': 'Report Updated',
@@ -677,7 +758,9 @@ class NotificationService {
           .push()
           .set(notificationData);
 
-      debugPrint('✅ Notification stored for reporter: $reporterUid at path: userNotifications/$reporterUid');
+      debugPrint(
+        '✅ Notification stored for reporter: $reporterUid at path: userNotifications/$reporterUid',
+      );
       return true;
     } catch (e) {
       debugPrint('❌ Error notifying reporter: $e');
@@ -706,7 +789,7 @@ class NotificationService {
             .child(uid)
             .push()
             .set(notificationData);
-        
+
         successCount++;
       }
       debugPrint('Bulk notification sent to $successCount reporters');
@@ -719,11 +802,7 @@ class NotificationService {
 
   /// Get all notifications for current user
   Stream<List<Map<String, dynamic>>> getUserNotifications(String userId) {
-    return _dbRef
-        .child('userNotifications')
-        .child(userId)
-        .onValue
-        .map((event) {
+    return _dbRef.child('userNotifications').child(userId).onValue.map((event) {
       final notifications = <Map<String, dynamic>>[];
       if (event.snapshot.exists) {
         final data = event.snapshot.value as Map?;
@@ -737,7 +816,7 @@ class NotificationService {
                 'reportId': value['reportId'],
                 'status': value['status'],
                 'supervisorName': value['supervisorName'],
-                'severity': value['severity'] ?? 'Not Set',
+                'severity': value['severity'],
                 'reporterName': value['reporterName'] ?? 'Unknown',
                 'timestamp': value['timestamp'] ?? '',
                 'read': value['read'] ?? false,
@@ -748,8 +827,10 @@ class NotificationService {
       }
       // Sort by timestamp descending
       notifications.sort((a, b) {
-        DateTime timeA = DateTime.tryParse(a['timestamp'] ?? '') ?? DateTime(1970);
-        DateTime timeB = DateTime.tryParse(b['timestamp'] ?? '') ?? DateTime(1970);
+        DateTime timeA =
+            DateTime.tryParse(a['timestamp'] ?? '') ?? DateTime(1970);
+        DateTime timeB =
+            DateTime.tryParse(b['timestamp'] ?? '') ?? DateTime(1970);
         return timeB.compareTo(timeA);
       });
       return notifications;
@@ -757,7 +838,10 @@ class NotificationService {
   }
 
   /// Mark notification as read
-  Future<void> markNotificationAsRead(String userId, String notificationId) async {
+  Future<void> markNotificationAsRead(
+    String userId,
+    String notificationId,
+  ) async {
     try {
       await _dbRef
           .child('userNotifications')
@@ -788,7 +872,7 @@ class NotificationService {
         if (data != null) {
           int count = 0;
           final updateTasks = <Future>[];
-          
+
           data.forEach((dynamic key, dynamic value) {
             if (value is Map) {
               final isRead = value['read'];
@@ -804,7 +888,7 @@ class NotificationService {
               }
             }
           });
-          
+
           if (updateTasks.isNotEmpty) {
             await Future.wait(updateTasks);
             await updateAppBadgeCount(0);
@@ -845,15 +929,11 @@ class NotificationService {
         return Map<String, dynamic>.from(snapshot.value as Map);
       } else {
         // Return default preferences
-        return {
-          'newReports': true,
-        };
+        return {'newReports': true};
       }
     } catch (e) {
       debugPrint('Error getting notification preferences: $e');
-      return {
-        'newReports': true,
-      };
+      return {'newReports': true};
     }
   }
 
@@ -875,11 +955,7 @@ class NotificationService {
 
   /// Get unread notification count
   Stream<int> getUnreadNotificationCount(String userId) {
-    return _dbRef
-        .child('userNotifications')
-        .child(userId)
-        .onValue
-        .map((event) {
+    return _dbRef.child('userNotifications').child(userId).onValue.map((event) {
       int count = 0;
       if (event.snapshot.exists) {
         final data = event.snapshot.value as Map?;
@@ -935,7 +1011,9 @@ class NotificationService {
   /// Call this when user opens the notifications viewer
   Future<void> autoMarkUnreadNotificationsAsRead(String userId) async {
     try {
-      debugPrint('📋 Auto-marking all unread notifications as read for user: $userId');
+      debugPrint(
+        '📋 Auto-marking all unread notifications as read for user: $userId',
+      );
       final snapshot = await _dbRef
           .child('userNotifications')
           .child(userId)
@@ -946,7 +1024,7 @@ class NotificationService {
         if (data != null) {
           int count = 0;
           final updateTasks = <Future>[];
-          
+
           data.forEach((dynamic key, dynamic value) {
             if (value is Map) {
               // Mark as read if not already read
@@ -963,7 +1041,7 @@ class NotificationService {
               }
             }
           });
-          
+
           // Wait for all updates to complete
           if (updateTasks.isNotEmpty) {
             await Future.wait(updateTasks);
@@ -982,61 +1060,40 @@ class NotificationService {
   Future<List<String>> getAllSupervisors() async {
     try {
       debugPrint('🔍 Starting getAllSupervisors...');
-      final snapshot = await _dbRef.child('users').get();
+      final snapshot = await _dbRef
+          .child('roleDirectory')
+          .child('supervisors')
+          .get();
       final supervisors = <String>[];
 
-      if (!snapshot.exists) {
-        debugPrint('ℹ️ No users data found in database');
+      if (!snapshot.exists || snapshot.value == null) {
+        debugPrint('ℹ️ No active supervisors found in role directory');
         return supervisors;
       }
 
       final data = snapshot.value;
-      debugPrint('🔍 Users data type: ${data.runtimeType}');
-      
-      if (data == null) {
-        debugPrint('ℹ️ Users data is null');
-        return supervisors;
-      }
+      debugPrint('🔍 Supervisor directory type: ${data.runtimeType}');
 
-      // Try to treat it as a map
       if (data is Map) {
-        debugPrint('📋 Processing users as Map with ${data.length} entries');
-        data.forEach((uid, userInfo) {
-          if (userInfo == null) return;
-          
-          try {
-            // Check type before accessing
-            if (userInfo is Map) {
-              final role = userInfo['role'] ?? '';
-              if (role.toString().toLowerCase() == 'supervisor') {
-                supervisors.add(uid.toString());
-                debugPrint('✅ Found supervisor: $uid');
-              }
-            }
-          } catch (e) {
-            debugPrint('⚠️ Error processing user $uid: $e');
+        debugPrint(
+          '📋 Processing supervisor directory as Map with ${data.length} entries',
+        );
+        data.forEach((uid, value) {
+          if (value == true) {
+            supervisors.add(uid.toString());
+            debugPrint('✅ Found active supervisor: $uid');
           }
         });
       } else {
-        debugPrint('⚠️ Users data is not a Map: ${data.runtimeType}');
+        debugPrint(
+          '⚠️ Supervisor role directory is not a Map: ${data.runtimeType}',
+        );
       }
-      
+
       debugPrint('✅ Found ${supervisors.length} supervisors');
       return supervisors;
     } catch (e) {
       debugPrint('❌ Error getting supervisors: $e');
-      // Try fallback: get all users
-      try {
-        debugPrint('🔄 Attempting fallback approach...');
-        final snapshot = await _dbRef.child('users').get();
-        if (snapshot.exists && snapshot.value is Map) {
-          final users = (snapshot.value as Map).keys.map((k) => k.toString()).toList();
-          debugPrint('💫 Fallback: Found ${users.length} total users, notifying all');
-          return users;
-        }
-      } catch (fallbackError) {
-        debugPrint('⚠️ Fallback failed: $fallbackError');
-      }
       return [];
     }
   }
@@ -1049,10 +1106,11 @@ class NotificationService {
     required String reportTitle,
     required String location,
     required String notePreview,
+    String? severity,
   }) async {
     try {
       final supervisors = await getAllSupervisors();
-      
+
       if (supervisors.isEmpty) {
         debugPrint('No supervisors found to notify about notes');
         return;
@@ -1060,28 +1118,34 @@ class NotificationService {
 
       final notificationData = {
         'title': 'Note Added: $reportType',
-        'body': '$supervisorName added notes to "$reportTitle" at $location: "$notePreview"',
+        'body':
+            '$supervisorName added notes to "$reportTitle" at $location: "$notePreview"',
         'reportId': reportId,
         'reportType': reportType,
         'reportTitle': reportTitle,
         'location': location,
         'supervisorName': supervisorName,
         'notePreview': notePreview,
+        if ((severity ?? '').trim().isNotEmpty) 'severity': severity!.trim(),
         'timestamp': DateTime.now().toIso8601String(),
         'read': false,
       };
 
       int sentCount = 0;
       for (String supervisorUid in supervisors) {
-        await _dbRef
-            .child('userNotifications')
-            .child(supervisorUid)
-            .push()
-            .set(notificationData);
-        sentCount++;
+        final saved = await saveNotificationForUser(
+          userId: supervisorUid,
+          notificationData: notificationData,
+          dedupeKey: 'supervisor-note:$reportId:$supervisorUid:$notePreview',
+        );
+        if (saved) {
+          sentCount++;
+        }
       }
 
-      debugPrint('✅ Note notification sent to $sentCount supervisors for report: $reportId');
+      debugPrint(
+        '✅ Note notification sent to $sentCount supervisors for report: $reportId',
+      );
     } catch (e) {
       debugPrint('❌ Error notifying supervisors on note added: $e');
     }
@@ -1091,61 +1155,40 @@ class NotificationService {
   Future<List<String>> getAllReporters() async {
     try {
       debugPrint('🔍 Starting getAllReporters...');
-      final snapshot = await _dbRef.child('users').get();
+      final snapshot = await _dbRef
+          .child('roleDirectory')
+          .child('reporters')
+          .get();
       final reporters = <String>[];
 
-      if (!snapshot.exists) {
-        debugPrint('ℹ️ No users data found in database');
+      if (!snapshot.exists || snapshot.value == null) {
+        debugPrint('ℹ️ No active reporters found in role directory');
         return reporters;
       }
 
       final data = snapshot.value;
-      debugPrint('🔍 Users data type: ${data.runtimeType}');
-      
-      if (data == null) {
-        debugPrint('ℹ️ Users data is null');
-        return reporters;
-      }
+      debugPrint('🔍 Reporter directory type: ${data.runtimeType}');
 
-      // Try to treat it as a map
       if (data is Map) {
-        debugPrint('📋 Processing users as Map with ${data.length} entries');
-        data.forEach((uid, userInfo) {
-          if (userInfo == null) return;
-          
-          try {
-            // Check type before accessing
-            if (userInfo is Map) {
-              final role = userInfo['role'] ?? '';
-              if (role.toString().toLowerCase() == 'reporter') {
-                reporters.add(uid.toString());
-                debugPrint('✅ Found reporter: $uid');
-              }
-            }
-          } catch (e) {
-            debugPrint('⚠️ Error processing user $uid: $e');
+        debugPrint(
+          '📋 Processing reporter directory as Map with ${data.length} entries',
+        );
+        data.forEach((uid, value) {
+          if (value == true) {
+            reporters.add(uid.toString());
+            debugPrint('✅ Found reporter: $uid');
           }
         });
       } else {
-        debugPrint('⚠️ Users data is not a Map: ${data.runtimeType}');
+        debugPrint(
+          '⚠️ Reporter role directory is not a Map: ${data.runtimeType}',
+        );
       }
-      
+
       debugPrint('✅ Found ${reporters.length} reporters');
       return reporters;
     } catch (e) {
       debugPrint('❌ Error getting reporters: $e');
-      // Try fallback: get all users
-      try {
-        debugPrint('🔄 Attempting fallback approach...');
-        final snapshot = await _dbRef.child('users').get();
-        if (snapshot.exists && snapshot.value is Map) {
-          final users = (snapshot.value as Map).keys.map((k) => k.toString()).toList();
-          debugPrint('💫 Fallback: Found ${users.length} total users, notifying all');
-          return users;
-        }
-      } catch (fallbackError) {
-        debugPrint('⚠️ Fallback failed: $fallbackError');
-      }
       return [];
     }
   }
@@ -1163,7 +1206,14 @@ class NotificationService {
     try {
       debugPrint('📢 Fetching reporters to notify about new report...');
       debugPrint('🔍 Current reporter UID: $reporterUid');
-      
+      final normalizedSeverity = severity.trim();
+      final hasVisibleSeverity =
+          normalizedSeverity.isNotEmpty &&
+          normalizedSeverity.toLowerCase() != 'not set';
+      final notificationBody = hasVisibleSeverity
+          ? '$reportType - $reportTitle by $reporterName (Severity: $normalizedSeverity)'
+          : '$reportType - $reportTitle by $reporterName';
+
       // Get all reporters
       final reporterUids = await getAllReporters();
       debugPrint('Found ${reporterUids.length} reporters');
@@ -1181,10 +1231,10 @@ class NotificationService {
 
         final notificationData = {
           'title': 'New System Report',
-          'body': '$reportType - $reportTitle by $reporterName (Severity: $severity)',
+          'body': notificationBody,
           'reportId': reportId,
           'reportType': reportType,
-          'severity': severity,
+          if (hasVisibleSeverity) 'severity': normalizedSeverity,
           'reporterName': reporterName,
           'timestamp': DateTime.now().toIso8601String(),
           'read': false,
@@ -1196,14 +1246,14 @@ class NotificationService {
               .child(recipientUid)
               .push()
               .set(notificationData);
-          
+
           debugPrint('✅ Notification saved for reporter: $recipientUid');
           notifiedCount++;
         } catch (e) {
           debugPrint('❌ Error notifying reporter $recipientUid: $e');
         }
       }
-      
+
       debugPrint('✅ New report notification sent to $notifiedCount reporters');
       return notifiedCount;
     } catch (e) {
@@ -1220,30 +1270,34 @@ class NotificationService {
     required String status,
     required String severity,
     required String supervisorName,
+    String? notificationTitle,
+    String? notificationBody,
+    String? excludeReporterUid,
+    String? dedupeKey,
   }) async {
     int notifiedCount = 0;
     try {
       debugPrint('📢 Fetching reporters to notify about update...');
-      
+
       // Get all reporters
       final reporterUids = await getAllReporters();
-      debugPrint('Found ${reporterUids.length} reporters for update notification');
+      debugPrint(
+        'Found ${reporterUids.length} reporters for update notification',
+      );
       if (reporterUids.isEmpty) {
         debugPrint('⚠️ No reporters found to notify about update');
       } else {
         debugPrint('🔍 Reporter UIDs to notify: $reporterUids');
       }
 
-      String notificationTitle = '';
-      String notificationBody = '';
-
-      // Create notification message based on what was updated
-      notificationTitle = 'Report Updated';
-      notificationBody = 'Supervisor $supervisorName updated $reportType report. Status: ${status.toUpperCase()}, Severity: ${severity.toUpperCase()}';
+      final resolvedTitle = notificationTitle ?? 'Report Updated';
+      final resolvedBody =
+          notificationBody ??
+          'Supervisor $supervisorName updated $reportType report. Status: ${status.toUpperCase()}, Severity: ${severity.toUpperCase()}';
 
       final notificationData = {
-        'title': notificationTitle,
-        'body': notificationBody,
+        'title': resolvedTitle,
+        'body': resolvedBody,
         'reportId': reportId,
         'reportType': reportType,
         'description': description,
@@ -1256,19 +1310,29 @@ class NotificationService {
 
       for (String reporterUid in reporterUids) {
         try {
-          await _dbRef
-              .child('userNotifications')
-              .child(reporterUid)
-              .push()
-              .set(notificationData);
-          
-          debugPrint('✅ Update notification saved for reporter: $reporterUid');
-          notifiedCount++;
+          if (excludeReporterUid != null && reporterUid == excludeReporterUid) {
+            continue;
+          }
+
+          final saved = await saveNotificationForUser(
+            userId: reporterUid,
+            notificationData: notificationData,
+            dedupeKey: dedupeKey != null && dedupeKey.trim().isNotEmpty
+                ? '${dedupeKey.trim()}:$reporterUid'
+                : null,
+          );
+
+          if (saved) {
+            debugPrint(
+              '✅ Update notification saved for reporter: $reporterUid',
+            );
+            notifiedCount++;
+          }
         } catch (e) {
           debugPrint('❌ Error notifying reporter $reporterUid of update: $e');
         }
       }
-      
+
       debugPrint('✅ Update notification sent to $notifiedCount reporters');
       return notifiedCount;
     } catch (e) {
@@ -1277,5 +1341,3 @@ class NotificationService {
     }
   }
 }
-
-

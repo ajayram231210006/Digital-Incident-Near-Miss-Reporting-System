@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'app_theme.dart';
 import 'reporter_report_detail.dart';
 
 class SystemReportsViewer extends StatefulWidget {
@@ -37,12 +38,7 @@ class _SystemReportsViewerState extends State<SystemReportsViewer>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('System Reports'),
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-      ),
+      appBar: AppBar(title: const Text('System Reports'), elevation: 0),
       body: Column(
         children: [
           // Filter Chips
@@ -101,7 +97,11 @@ class _SystemReportsViewerState extends State<SystemReportsViewer>
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                          const Icon(
+                            Icons.error_outline,
+                            size: 64,
+                            color: AppColors.error,
+                          ),
                           const SizedBox(height: 16),
                           Text('Error: ${snapshot.error}'),
                           const SizedBox(height: 16),
@@ -121,7 +121,11 @@ class _SystemReportsViewerState extends State<SystemReportsViewer>
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.inbox_outlined, size: 64, color: Colors.grey),
+                          const Icon(
+                            Icons.inbox_outlined,
+                            size: 64,
+                            color: AppColors.textSecondary,
+                          ),
                           const SizedBox(height: 16),
                           const Text('No reports found'),
                         ],
@@ -135,7 +139,11 @@ class _SystemReportsViewerState extends State<SystemReportsViewer>
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.inbox_outlined, size: 64, color: Colors.grey),
+                          const Icon(
+                            Icons.inbox_outlined,
+                            size: 64,
+                            color: AppColors.textSecondary,
+                          ),
                           const SizedBox(height: 16),
                           const Text('No reports found'),
                         ],
@@ -147,8 +155,11 @@ class _SystemReportsViewerState extends State<SystemReportsViewer>
                   List<MapEntry<String, dynamic>> filteredReports = [];
                   data.forEach((key, value) {
                     if (value is Map) {
-                      final status = (value['status'] ?? 'open').toString().toLowerCase();
-                      if (_selectedFilter == 'all' || status == _selectedFilter) {
+                      final status = (value['status'] ?? 'open')
+                          .toString()
+                          .toLowerCase();
+                      if (_selectedFilter == 'all' ||
+                          status == _selectedFilter) {
                         filteredReports.add(MapEntry(key, value));
                       }
                     }
@@ -157,8 +168,12 @@ class _SystemReportsViewerState extends State<SystemReportsViewer>
                   // Sort by creation date (newest first)
                   filteredReports.sort((a, b) {
                     try {
-                      final dateA = DateTime.parse((a.value['createdAt'] ?? '').toString());
-                      final dateB = DateTime.parse((b.value['createdAt'] ?? '').toString());
+                      final dateA = DateTime.parse(
+                        (a.value['createdAt'] ?? '').toString(),
+                      );
+                      final dateB = DateTime.parse(
+                        (b.value['createdAt'] ?? '').toString(),
+                      );
                       return dateB.compareTo(dateA);
                     } catch (e) {
                       return 0;
@@ -170,7 +185,11 @@ class _SystemReportsViewerState extends State<SystemReportsViewer>
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.filter_list_outlined, size: 64, color: Colors.grey),
+                          const Icon(
+                            Icons.filter_list_outlined,
+                            size: 64,
+                            color: AppColors.textSecondary,
+                          ),
                           const SizedBox(height: 16),
                           const Text('No reports with this filter'),
                         ],
@@ -185,7 +204,7 @@ class _SystemReportsViewerState extends State<SystemReportsViewer>
                       try {
                         final reportId = filteredReports[index].key;
                         final reportData = filteredReports[index].value as Map;
-                        
+
                         final report = <String, dynamic>{};
                         for (var key in reportData.keys) {
                           report[key.toString()] = reportData[key];
@@ -218,7 +237,11 @@ class _SystemReportsViewerState extends State<SystemReportsViewer>
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                          const Icon(
+                            Icons.error_outline,
+                            size: 64,
+                            color: AppColors.error,
+                          ),
                           const SizedBox(height: 16),
                           Text('Error: $e'),
                           const SizedBox(height: 16),
@@ -257,16 +280,16 @@ class _ModernFilterChip extends StatelessWidget {
       label: Text(label),
       selected: isSelected,
       onSelected: (_) => onPressed(),
-      backgroundColor: Colors.grey[200],
-      selectedColor: Colors.blue.shade400,
+      backgroundColor: AppColors.surfaceMuted,
+      selectedColor: AppColors.primary,
       labelStyle: TextStyle(
-        color: isSelected ? Colors.white : Colors.black87,
+        color: isSelected ? Colors.white : AppColors.textPrimary,
         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
       ),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: AppRadii.pill,
         side: BorderSide(
-          color: isSelected ? Colors.blue.shade400 : Colors.transparent,
+          color: isSelected ? AppColors.primary : Colors.transparent,
         ),
       ),
     );
@@ -307,14 +330,7 @@ class _ReportCard extends StatelessWidget {
     final reporterEmail = (report['reporterEmail'] ?? 'Unknown').toString();
 
     Color getStatusBadgeColor() {
-      switch (status) {
-        case 'closed':
-          return Colors.green;
-        case 'active':
-          return Colors.orange;
-        default:
-          return Colors.red;
-      }
+      return AppStatus.resolve(status).color;
     }
 
     return Card(
@@ -351,7 +367,7 @@ class _ReportCard extends StatelessWidget {
                           'ID: $reportId',
                           style: const TextStyle(
                             fontSize: 12,
-                            color: Colors.grey,
+                            color: AppColors.textSecondary,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -392,7 +408,10 @@ class _ReportCard extends StatelessWidget {
               else
                 const Text(
                   'No description',
-                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppColors.textSecondary,
+                  ),
                 ),
               const SizedBox(height: 12),
 
@@ -402,7 +421,11 @@ class _ReportCard extends StatelessWidget {
                   Expanded(
                     child: Row(
                       children: [
-                        const Icon(Icons.person_outline, size: 16, color: Colors.grey),
+                        const Icon(
+                          Icons.person_outline,
+                          size: 16,
+                          color: AppColors.textSecondary,
+                        ),
                         const SizedBox(width: 4),
                         Expanded(
                           child: Text(
@@ -411,7 +434,7 @@ class _ReportCard extends StatelessWidget {
                                 : reporterEmail,
                             style: const TextStyle(
                               fontSize: 12,
-                              color: Colors.grey,
+                              color: AppColors.textSecondary,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -428,14 +451,14 @@ class _ReportCard extends StatelessWidget {
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.grey.shade200,
-                        borderRadius: BorderRadius.circular(4),
+                        color: AppColors.surfaceMuted,
+                        borderRadius: AppRadii.small,
                       ),
                       child: Text(
                         severity,
                         style: TextStyle(
                           fontSize: 11,
-                          color: Colors.grey.shade800,
+                          color: AppColors.textPrimary,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -450,7 +473,7 @@ class _ReportCard extends StatelessWidget {
                   _formatDate(createdAt),
                   style: const TextStyle(
                     fontSize: 12,
-                    color: Colors.grey,
+                    color: AppColors.textSecondary,
                   ),
                 ),
             ],
