@@ -97,12 +97,8 @@ class _ReporterReportsListState extends State<ReporterReportsList> {
                 });
 
                 reports.sort((a, b) {
-                  final dateA =
-                      DateTime.tryParse(a['date']?.toString() ?? '') ??
-                      DateTime(1970);
-                  final dateB =
-                      DateTime.tryParse(b['date']?.toString() ?? '') ??
-                      DateTime(1970);
+                  final dateA = _resolveIncidentDate(a) ?? DateTime(1970);
+                  final dateB = _resolveIncidentDate(b) ?? DateTime(1970);
                   return dateB.compareTo(dateA);
                 });
 
@@ -212,7 +208,7 @@ class _ReporterReportsListState extends State<ReporterReportsList> {
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        _formatDate(report['date'].toString()),
+                                        _formatDate(report),
                                         style: Theme.of(context)
                                             .textTheme
                                             .bodySmall
@@ -245,8 +241,34 @@ class _ReporterReportsListState extends State<ReporterReportsList> {
     );
   }
 
-  String _formatDate(String dateString) {
-    final date = DateTime.tryParse(dateString);
+  DateTime? _resolveIncidentDate(Map<String, dynamic> report) {
+    for (final key in const ['date', 'incidentDate', 'createdAt', 'timestamp']) {
+      final value = report[key];
+      final parsed = _parseDate(value);
+      if (parsed != null) return parsed;
+    }
+    return null;
+  }
+
+  DateTime? _parseDate(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is int) {
+      return DateTime.fromMillisecondsSinceEpoch(raw);
+    }
+
+    final text = raw.toString().trim();
+    if (text.isEmpty) return null;
+
+    final parsedInt = int.tryParse(text);
+    if (parsedInt != null) {
+      return DateTime.fromMillisecondsSinceEpoch(parsedInt);
+    }
+
+    return DateTime.tryParse(text);
+  }
+
+  String _formatDate(Map<String, dynamic> report) {
+    final date = _resolveIncidentDate(report);
     if (date == null) return 'Unknown date';
     final difference = DateTime.now().difference(date);
     if (difference.inMinutes < 60) return '${difference.inMinutes} min ago';

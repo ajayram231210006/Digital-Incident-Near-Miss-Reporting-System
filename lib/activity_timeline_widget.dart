@@ -5,8 +5,13 @@ import 'app_theme.dart';
 
 class ActivityTimelineWidget extends StatefulWidget {
   final User user;
+  final ValueChanged<String>? onActivityTap;
 
-  const ActivityTimelineWidget({super.key, required this.user});
+  const ActivityTimelineWidget({
+    super.key,
+    required this.user,
+    this.onActivityTap,
+  });
 
   @override
   State<ActivityTimelineWidget> createState() => _ActivityTimelineWidgetState();
@@ -155,6 +160,7 @@ class _ActivityTimelineWidgetState extends State<ActivityTimelineWidget> {
                       final timeStr = _formatTime(activity['date']);
 
                       return _ActivityTimelineItem(
+                        reportId: activity['id'].toString(),
                         icon: statusIcon,
                         color: statusColor,
                         title: activity['type'],
@@ -163,6 +169,7 @@ class _ActivityTimelineWidgetState extends State<ActivityTimelineWidget> {
                         time: timeStr,
                         isFirst: index == 0,
                         isLast: index == activities.length - 1,
+                        onTap: widget.onActivityTap,
                       );
                     },
                   ),
@@ -178,6 +185,7 @@ class _ActivityTimelineWidgetState extends State<ActivityTimelineWidget> {
 
 // Timeline Item Widget
 class _ActivityTimelineItem extends StatelessWidget {
+  final String reportId;
   final IconData icon;
   final Color color;
   final String title;
@@ -186,8 +194,10 @@ class _ActivityTimelineItem extends StatelessWidget {
   final String time;
   final bool isFirst;
   final bool isLast;
+  final ValueChanged<String>? onTap;
 
   const _ActivityTimelineItem({
+    required this.reportId,
     required this.icon,
     required this.color,
     required this.title,
@@ -196,106 +206,135 @@ class _ActivityTimelineItem extends StatelessWidget {
     required this.time,
     required this.isFirst,
     required this.isLast,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Timeline line and dot
-        Column(
-          children: [
-            // Dot
-            Container(
-              width: 12,
-              height: 12,
-              decoration: BoxDecoration(
-                color: color,
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.surface, width: 2),
-                boxShadow: [
-                  BoxShadow(color: color.withValues(alpha: 0.3), blurRadius: 4),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: AppRadii.large,
+        onTap: onTap == null ? null : () => onTap!(reportId),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Timeline line and dot
+              Column(
+                children: [
+                  // Dot
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.surface, width: 2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: color.withValues(alpha: 0.3),
+                          blurRadius: 4,
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Line
+                  if (!isLast)
+                    Container(width: 2, height: 60, color: AppColors.outline),
                 ],
               ),
-            ),
-            // Line
-            if (!isLast)
-              Container(width: 2, height: 60, color: AppColors.outline),
-          ],
-        ),
-        const SizedBox(width: 12),
-        // Content
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(width: 12),
+              // Content
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            title,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  title,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  subtitle,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            subtitle,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textSecondary,
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            decoration: BoxDecoration(
+                              color: color.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: color.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Text(
+                              status,
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: color,
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              time,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            size: 18,
+                            color: AppColors.textSecondary.withValues(
+                              alpha: 0.7,
+                            ),
+                          ),
+                        ],
                       ),
-                      decoration: BoxDecoration(
-                        color: color.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: color.withValues(alpha: 0.3)),
-                      ),
-                      child: Text(
-                        status,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: color,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  time,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.textSecondary,
+                    ],
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 }

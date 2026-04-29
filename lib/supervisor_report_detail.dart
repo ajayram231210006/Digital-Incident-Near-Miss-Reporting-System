@@ -139,6 +139,10 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
           status: _status,
           severity: _severity,
           notes: newNotes,
+          reviewerUid: FirebaseAuth.instance.currentUser?.uid,
+          reviewerName:
+              FirebaseAuth.instance.currentUser?.displayName ??
+              FirebaseAuth.instance.currentUser?.email?.split('@').first,
         ),
       );
 
@@ -202,6 +206,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
           FirebaseAuth.instance.currentUser?.displayName ??
           FirebaseAuth.instance.currentUser?.email?.split('@').first ??
           'Supervisor';
+      final actingSupervisorUid = FirebaseAuth.instance.currentUser?.uid;
       final reviewNotification = ReviewNotificationFormatter.build(
         reportId: widget.reportId,
         reportType: reportType.toString(),
@@ -287,6 +292,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
             supervisorName: supervisorName,
             notePreview: notePreview,
             severity: _severity,
+            excludeSupervisorUid: actingSupervisorUid,
           );
         } catch (notificationError) {
           notificationWarning = true;
@@ -489,7 +495,7 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                       Expanded(
                         child: _buildInfoTile(
                           'Date',
-                          _formatDate(widget.report['date']),
+                          _formatDate(_resolveIncidentDate(widget.report)),
                           Icons.calendar_today,
                           AppColors.info,
                         ),
@@ -507,6 +513,13 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                  _buildInfoTile(
+                    'Department',
+                    widget.report['department'] ?? 'Not specified',
+                    Icons.apartment_outlined,
+                    AppColors.secondary,
                   ),
                   const SizedBox(height: 12),
                   _buildInfoTile(
@@ -1402,15 +1415,36 @@ class _SupervisorReportDetailState extends State<SupervisorReportDetail> {
     return Icon(resolved.icon, color: Colors.white, size: 28);
   }
 
+  dynamic _resolveIncidentDate(Map<String, dynamic> report) {
+    for (final key in const ['date', 'incidentDate', 'createdAt', 'timestamp']) {
+      final value = report[key];
+      if (_parseDate(value) != null) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  DateTime? _parseDate(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is int) {
+      return DateTime.fromMillisecondsSinceEpoch(raw);
+    }
+
+    final text = raw.toString().trim();
+    if (text.isEmpty) return null;
+
+    final parsedInt = int.tryParse(text);
+    if (parsedInt != null) {
+      return DateTime.fromMillisecondsSinceEpoch(parsedInt);
+    }
+
+    return DateTime.tryParse(text);
+  }
+
   String _formatDate(dynamic dateString) {
-    if (dateString == null || dateString.toString().isEmpty) {
-      return 'Unknown';
-    }
-    try {
-      final date = DateTime.parse(dateString.toString());
-      return '${date.day}/${date.month}/${date.year}';
-    } catch (e) {
-      return 'Unknown';
-    }
+    final date = _parseDate(dateString);
+    if (date == null) return 'Unknown';
+    return '${date.day}/${date.month}/${date.year}';
   }
 }

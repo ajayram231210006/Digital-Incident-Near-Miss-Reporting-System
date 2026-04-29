@@ -3,6 +3,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
+import 'organization_analytics_page.dart';
 import 'ui_components.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -238,6 +239,18 @@ class _AdminDashboardState extends State<AdminDashboard>
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Organization analytics',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) =>
+                      OrganizationAnalyticsPage(user: widget.user),
+                ),
+              );
+            },
+            icon: const Icon(Icons.analytics_outlined),
+          ),
           IconButton(
             onPressed: _showLogoutDialog,
             icon: const Icon(Icons.logout),

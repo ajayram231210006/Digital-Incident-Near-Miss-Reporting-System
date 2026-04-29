@@ -23,6 +23,7 @@ class QueuedIncidentDraft {
   final String description;
   final DateTime incidentDate;
   final String location;
+  final String department;
   final List<String> localImagePaths;
   final String? localVideoPath;
   final double? latitude;
@@ -38,6 +39,7 @@ class QueuedIncidentDraft {
     required this.description,
     required this.incidentDate,
     required this.location,
+    required this.department,
     required this.queuedAt,
     this.reporterEmail,
     this.localImagePaths = const [],
@@ -57,6 +59,7 @@ class QueuedIncidentDraft {
       'description': description,
       'incidentDate': incidentDate.toIso8601String(),
       'location': location,
+      'department': department,
       'localImagePaths': localImagePaths,
       'localVideoPath': localVideoPath,
       'latitude': latitude,
@@ -78,6 +81,7 @@ class QueuedIncidentDraft {
           DateTime.tryParse(json['incidentDate']?.toString() ?? '') ??
           DateTime.now(),
       location: json['location']?.toString() ?? '',
+      department: json['department']?.toString() ?? 'General',
       localImagePaths: (json['localImagePaths'] as List<dynamic>? ?? const [])
           .map((path) => path.toString())
           .toList(),
@@ -167,6 +171,7 @@ class OfflineIncidentQueueService {
         description: draft.description,
         incidentDate: draft.incidentDate,
         location: draft.location,
+        department: draft.department,
         localImagePaths: localImagePaths,
         localVideoPath: localVideoPath,
         latitude: draft.latitude,
@@ -227,6 +232,7 @@ class OfflineIncidentQueueService {
           description: item.description,
           incidentDate: item.incidentDate,
           location: item.location,
+          department: item.department,
           imageUrls: imageUrls,
           videoUrl: videoUrl,
           latitude: item.latitude,

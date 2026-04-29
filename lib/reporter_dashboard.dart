@@ -273,6 +273,37 @@ class _ReporterDashboardState extends State<ReporterDashboard> {
     );
   }
 
+  Future<void> _openReportDetail(String reportId) async {
+    try {
+      final snapshot = await _dbRef.child('incidents').child(reportId).get();
+      if (!mounted) return;
+
+      if (!snapshot.exists) {
+        showAppSnackBar(
+          context,
+          'That report is no longer available.',
+          type: AppSnackBarType.info,
+        );
+        return;
+      }
+
+      final reportData = Map<String, dynamic>.from(snapshot.value as Map);
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) =>
+              ReporterReportDetail(reportId: reportId, report: reportData),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        'We could not open that report right now.',
+        type: AppSnackBarType.error,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -500,7 +531,10 @@ class _ReporterDashboardState extends State<ReporterDashboard> {
                 const SizedBox(height: 28),
                 ReporterTrendsWidget(user: widget.user),
                 const SizedBox(height: 28),
-                ActivityTimelineWidget(user: widget.user),
+                ActivityTimelineWidget(
+                  user: widget.user,
+                  onActivityTap: _openReportDetail,
+                ),
               ],
             ),
           );

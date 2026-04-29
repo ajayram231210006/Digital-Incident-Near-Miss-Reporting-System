@@ -31,6 +31,19 @@ class ReportIncidentForm extends StatefulWidget {
 }
 
 class _ReportIncidentFormState extends State<ReportIncidentForm> {
+  static const List<String> _departmentOptions = [
+    'Production',
+    'Maintenance',
+    'Warehouse',
+    'Quality',
+    'Safety',
+    'Logistics',
+    'Administration',
+    'HR',
+    'Security',
+    'Other',
+  ];
+
   final _formKey = GlobalKey<FormState>();
   final _typeController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -42,13 +55,24 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
   final _incidentMediaService = const IncidentMediaService();
   final _offlineQueueService = OfflineIncidentQueueService();
 
-  DateTime? _incidentDate = DateTime.now();
+  DateTime _incidentDate = DateTime.now();
   final List<File> _imageFiles = [];
   File? _videoFile;
   bool _submitting = false;
   bool _gettingLocation = false;
   Position? _currentPosition;
   String? _autoLocationName;
+  String? _selectedDepartment;
+
+  String get _formattedCoordinates {
+    final position = _currentPosition;
+    if (position == null) {
+      return '';
+    }
+    return '${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
+  }
+
+  bool get _hasManualLocation => _locationController.text.trim().isNotEmpty;
 
   @override
   void dispose() {
@@ -146,7 +170,7 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
       if (!isServiceEnabled) {
         showAppSnackBar(
           context,
-          'Turn on location services to auto-fill the incident location.',
+          'Turn on location services to attach your current GPS coordinates.',
           type: AppSnackBarType.info,
         );
         return;
@@ -203,11 +227,12 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
         _currentPosition = position;
         _autoLocationName =
             '${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
-        _locationController.text = _autoLocationName ?? '';
       });
       showAppSnackBar(
         context,
-        'Location added successfully.',
+        _hasManualLocation
+            ? 'GPS coordinates captured. Your typed location was kept.'
+            : 'GPS coordinates captured. Please still enter a readable incident location.',
         type: AppSnackBarType.success,
       );
     } catch (_) {
@@ -236,6 +261,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
     if (_locationController.text.trim().isEmpty) {
       missingFields.add('location');
     }
+    if ((_selectedDepartment ?? '').trim().isEmpty) {
+      missingFields.add('department');
+    }
 
     if (missingFields.isNotEmpty) {
       _formKey.currentState?.validate();
@@ -255,8 +283,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
         reporterEmail: widget.reporter.email,
         type: _typeController.text.trim(),
         description: _descriptionController.text.trim(),
-        incidentDate: _incidentDate ?? DateTime.now(),
+        incidentDate: _incidentDate,
         location: _locationController.text.trim(),
+        department: _selectedDepartment!.trim(),
         latitude: _currentPosition?.latitude,
         longitude: _currentPosition?.longitude,
         autoLocationName: _autoLocationName,
@@ -290,6 +319,7 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
         description: baseDraft.description,
         incidentDate: baseDraft.incidentDate,
         location: baseDraft.location,
+        department: baseDraft.department,
         imageUrls: imageUrls,
         videoUrl: videoUrl,
         latitude: baseDraft.latitude,
@@ -316,8 +346,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
           reporterEmail: widget.reporter.email,
           type: _typeController.text.trim(),
           description: _descriptionController.text.trim(),
-          incidentDate: _incidentDate ?? DateTime.now(),
+          incidentDate: _incidentDate,
           location: _locationController.text.trim(),
+          department: _selectedDepartment!.trim(),
           latitude: _currentPosition?.latitude,
           longitude: _currentPosition?.longitude,
           autoLocationName: _autoLocationName,
@@ -403,7 +434,7 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
     final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: _incidentDate ?? now,
+      initialDate: _incidentDate,
       firstDate: DateTime(now.year - 5),
       lastDate: now,
     );
@@ -412,8 +443,7 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
     }
   }
 
-  String _formatDate(DateTime? date) {
-    if (date == null) return 'Select a date';
+  String _formatDate(DateTime date) {
     return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
   }
 
@@ -521,32 +551,105 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                           : null,
                     ),
                     const SizedBox(height: AppSpacing.lg),
+                    DropdownButtonFormField<String>(
+                      initialValue: _selectedDepartment,
+                      isExpanded: true,
+                      menuMaxHeight: 320,
+                      decoration: InputDecoration(
+                        labelText: 'Department',
+                        hintText: 'Select the department involved',
+                        prefixIcon: const Icon(
+                          Icons.apartment_outlined,
+                          color: AppColors.textSecondary,
+                        ),
+                        fillColor: AppColors.surfaceRaised,
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: AppRadii.medium,
+                          borderSide: const BorderSide(
+                            color: AppColors.primary,
+                            width: 2,
+                          ),
+                        ),
+                        errorBorder: OutlineInputBorder(
+                          borderRadius: AppRadii.medium,
+                          borderSide: const BorderSide(
+                            color: AppColors.error,
+                            width: 1.5,
+                          ),
+                        ),
+                        focusedErrorBorder: OutlineInputBorder(
+                          borderRadius: AppRadii.medium,
+                          borderSide: const BorderSide(
+                            color: AppColors.error,
+                            width: 2,
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 18,
+                        ),
+                        labelStyle: const TextStyle(
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      items: _departmentOptions
+                          .map(
+                            (department) => DropdownMenuItem<String>(
+                              value: department,
+                              child: Text(
+                                department,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        setState(() => _selectedDepartment = value);
+                      },
+                      validator: (value) =>
+                          (value == null || value.trim().isEmpty)
+                          ? 'Please select a department.'
+                          : null,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
                     _ResponsiveFields(
                       children: [
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             ModernTextField(
-                              label: 'Location',
-                              hint: 'Where did this happen?',
+                              label: 'Incident location',
+                              hint:
+                                  'e.g. Gate 2, Warehouse A, near loading dock',
                               controller: _locationController,
                               prefixIcon: Icons.location_on_outlined,
                               validator: (value) =>
                                   (value == null || value.trim().isEmpty)
-                                  ? 'Please enter the location.'
+                                  ? 'Please enter a readable incident location.'
                                   : null,
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
+                            _LocationCaptureCard(
+                              hasCoordinates: _currentPosition != null,
+                              coordinates: _formattedCoordinates,
+                              hasManualLocation: _hasManualLocation,
+                              onClearCoordinates: _currentPosition == null
+                                  ? null
+                                  : () {
+                                      setState(() {
+                                        _currentPosition = null;
+                                        _autoLocationName = null;
+                                      });
+                                    },
                             ),
                             const SizedBox(height: AppSpacing.sm),
                             Text(
                               _currentPosition != null
-                                  ? 'Auto-tagged coordinates: $_autoLocationName'
-                                  : 'Use the locate button to auto-fill coordinates.',
+                                  ? 'Readable location is required. GPS is stored separately for precision.'
+                                  : 'Enter a place people recognize, then attach GPS only if you are at or near the incident site.',
                               style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    color: _currentPosition != null
-                                        ? AppColors.success
-                                        : AppColors.textSecondary,
-                                  ),
+                                  ?.copyWith(color: AppColors.textSecondary),
                             ),
                           ],
                         ),
@@ -554,7 +657,9 @@ class _ReportIncidentFormState extends State<ReportIncidentForm> {
                           title: _gettingLocation
                               ? 'Locating...'
                               : 'Use current location',
-                          subtitle: 'Requests location permission if needed',
+                          subtitle: _currentPosition != null
+                              ? 'Refresh captured GPS coordinates'
+                              : 'Optional: attach GPS without replacing your typed location',
                           icon: _gettingLocation
                               ? const SizedBox(
                                   width: 20,
@@ -867,6 +972,109 @@ class _ActionTile extends StatelessWidget {
   }
 }
 
+class _LocationCaptureCard extends StatelessWidget {
+  final bool hasCoordinates;
+  final String coordinates;
+  final bool hasManualLocation;
+  final VoidCallback? onClearCoordinates;
+
+  const _LocationCaptureCard({
+    required this.hasCoordinates,
+    required this.coordinates,
+    required this.hasManualLocation,
+    this.onClearCoordinates,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = hasCoordinates ? AppColors.success : AppColors.info;
+    final title = hasCoordinates ? 'GPS captured' : 'Manual place entry';
+    final subtitle = hasCoordinates
+        ? hasManualLocation
+              ? 'Readable place saved with exact coordinates attached.'
+              : 'Coordinates are attached. You can still replace the label with a more specific place.'
+        : 'Type a place people recognize, such as a gate, floor, room, or landmark.';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.08),
+        borderRadius: AppRadii.large,
+        border: Border.all(color: accent.withValues(alpha: 0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                hasCoordinates
+                    ? Icons.gps_fixed_rounded
+                    : Icons.edit_location_alt_outlined,
+                color: accent,
+                size: 18,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              if (hasCoordinates && onClearCoordinates != null)
+                TextButton(
+                  onPressed: onClearCoordinates,
+                  child: const Text('Clear'),
+                ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            subtitle,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
+          ),
+          if (hasCoordinates) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm,
+                vertical: 10,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: AppRadii.medium,
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.pin_drop_outlined,
+                    size: 18,
+                    color: AppColors.success,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      coordinates,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _ResponsiveFields extends StatelessWidget {
   final List<Widget> children;
 
@@ -874,7 +1082,8 @@ class _ResponsiveFields extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isWide = MediaQuery.of(context).size.width >= 720;
+    final width = MediaQuery.of(context).size.width;
+    final isWide = width >= 760;
     if (!isWide) {
       return Column(
         children: [

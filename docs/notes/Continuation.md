@@ -1,1 +1,1 @@
-because i stopped you in between because you were taking too much time so did the whatever command you were running manually and pasted the output over here to see.Now proceed with your further steps to make maximum of it.
+I stopped you midway because the command was taking too long. I ran it manually myself and pasted the output here for reference. Please continue from that point and make the best possible use of it.

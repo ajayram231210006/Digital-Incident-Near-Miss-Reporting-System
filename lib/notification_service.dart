@@ -1107,6 +1107,7 @@ class NotificationService {
     required String location,
     required String notePreview,
     String? severity,
+    String? excludeSupervisorUid,
   }) async {
     try {
       final supervisors = await getAllSupervisors();
@@ -1133,6 +1134,11 @@ class NotificationService {
 
       int sentCount = 0;
       for (String supervisorUid in supervisors) {
+        if (excludeSupervisorUid != null &&
+            excludeSupervisorUid == supervisorUid) {
+          continue;
+        }
+
         final saved = await saveNotificationForUser(
           userId: supervisorUid,
           notificationData: notificationData,

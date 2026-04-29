@@ -7,7 +7,9 @@ import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
 import 'notification_service.dart';
+import 'organization_analytics_page.dart';
 import 'supervisor_notifications_viewer.dart';
+import 'supervisor_analytics_page.dart';
 import 'supervisor_report_detail.dart';
 import 'supervisor_reports_list.dart';
 import 'ui_components.dart';
@@ -528,6 +530,30 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                       icon: Icons.schedule_rounded,
                       onTap: () =>
                           _navigateToReports(context, initialSort: 'newest'),
+                    ),
+                    _QuickActionButton(
+                      label: 'My analytics',
+                      icon: Icons.analytics_outlined,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                SupervisorAnalyticsPage(user: widget.user),
+                          ),
+                        );
+                      },
+                    ),
+                    _QuickActionButton(
+                      label: 'Org analytics',
+                      icon: Icons.public_rounded,
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                OrganizationAnalyticsPage(user: widget.user),
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),

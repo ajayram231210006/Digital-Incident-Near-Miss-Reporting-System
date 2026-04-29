@@ -347,7 +347,7 @@ class _LoginDialogState extends State<_LoginDialog>
       // Verify that the selected role matches the user's actual role in database
       final user = userCredential.user;
       if (user != null) {
-        final profile = await _userProfileService.fetchProfile(user.uid);
+        final profile = await _loadOrRecoverProfile(user);
 
         if (profile == null) {
           await FirebaseAuth.instance.signOut();
@@ -417,6 +417,106 @@ class _LoginDialogState extends State<_LoginDialog>
       await _showMessage('Sign in failed');
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<UserProfile?> _loadOrRecoverProfile(User user) async {
+    try {
+      return await _userProfileService.fetchProfile(user.uid);
+    } on FormatException catch (error) {
+      if (error.message != 'User profile is missing a role.') {
+        rethrow;
+      }
+
+      final recovered = await _attemptProfileRecovery(user);
+      if (!recovered) {
+        rethrow;
+      }
+
+      return _userProfileService.fetchProfile(user.uid);
+    }
+  }
+
+  Future<bool> _attemptProfileRecovery(User user) async {
+    final selectedRole = _loginRole.value.toLowerCase();
+    if (selectedRole != 'reporter' && selectedRole != 'supervisor') {
+      return false;
+    }
+
+    final userRef = FirebaseDatabase.instance.ref().child('users').child(user.uid);
+    final snapshot = await userRef.get();
+
+    Map<String, dynamic> existing = <String, dynamic>{};
+    if (snapshot.exists && snapshot.value != null) {
+      final rawValue = snapshot.value;
+      if (rawValue is! Map<Object?, Object?>) {
+        return false;
+      }
+      existing = Map<String, dynamic>.from(rawValue);
+    }
+
+    final existingRole = existing['role']?.toString().trim().toLowerCase() ?? '';
+    if (existingRole.isNotEmpty && existingRole != selectedRole) {
+      return false;
+    }
+
+    final existingStatus = existing['status']?.toString().trim().toLowerCase() ?? '';
+    final status = existingStatus.isNotEmpty ? existingStatus : 'pending_approval';
+    final createdAt =
+        existing['createdAt']?.toString().trim().isNotEmpty == true
+            ? existing['createdAt'].toString()
+            : DateTime.now().toIso8601String();
+
+    final nameParts = _deriveNameParts(
+      existing['firstName']?.toString(),
+      existing['lastName']?.toString(),
+      user.displayName,
+    );
+
+    final repairedProfile = <String, Object?>{
+      'firstName': nameParts.$1,
+      'lastName': nameParts.$2,
+      'email': existing['email']?.toString().trim().isNotEmpty == true
+          ? existing['email'].toString()
+          : (user.email ?? _loginEmail.text.trim()),
+      'role': selectedRole,
+      'status': status,
+      'createdAt': createdAt,
+    };
+
+    try {
+      await userRef.update(repairedProfile);
+      return true;
+    } catch (e) {
+      debugPrint('Profile recovery failed for ${user.uid}: $e');
+      return false;
+    }
+  }
+
+  (String, String) _deriveNameParts(
+    String? existingFirstName,
+    String? existingLastName,
+    String? displayName,
+  ) {
+    final firstName = existingFirstName?.trim() ?? '';
+    final lastName = existingLastName?.trim() ?? '';
+    if (firstName.isNotEmpty || lastName.isNotEmpty) {
+      return (firstName, lastName);
+    }
+
+    final normalizedDisplayName = displayName?.trim() ?? '';
+    if (normalizedDisplayName.isEmpty) {
+      return ('', '');
+    }
+
+    final parts = normalizedDisplayName
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) {
+      return ('', '');
+    }
+
+    return (parts.first, parts.skip(1).join(' '));
   }
 
   void _showForgotPasswordDialog() {
@@ -957,9 +1057,28 @@ class _SignUpDialogState extends State<_SignUpDialog>
           }
         }
 
-        FirebaseDatabase.instance.ref().update(updates).catchError((e) {
+        try {
+          await FirebaseDatabase.instance.ref().update(updates);
+        } catch (e) {
           debugPrint('Error saving profile: $e');
-        });
+
+          // Avoid leaving behind an auth account with no database profile.
+          try {
+            await FirebaseDatabase.instance.ref().child('users').child(user.uid).remove();
+          } catch (_) {}
+
+          try {
+            await user.delete();
+          } on FirebaseAuthException catch (_) {
+            await FirebaseAuth.instance.signOut();
+          }
+
+          await _showMessage(
+            'Account created, but we could not finish setting up your profile. Please try signing up again.',
+          );
+          if (mounted) setState(() => _loading = false);
+          return;
+        }
 
         await UserProfileService().cacheOfflineReporterSession(
           profile: UserProfile(

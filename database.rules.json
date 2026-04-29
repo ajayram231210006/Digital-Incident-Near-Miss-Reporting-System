@@ -7,15 +7,15 @@
       ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active'",
       "$uid": {
         ".read": "auth != null && (auth.uid === $uid || (root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active'))",
-        ".write": "auth != null && (((root.child('users').child(auth.uid).child('role').val() === 'admin') && root.child('users').child(auth.uid).child('status').val() === 'active') || (auth.uid === $uid && ((!data.exists() && newData.hasChildren(['email', 'firstName', 'lastName', 'role', 'status', 'createdAt'])) || (data.exists() && newData.child('role').val() === data.child('role').val() && newData.child('status').val() === data.child('status').val() && newData.child('createdAt').val() === data.child('createdAt').val()))))",
+        ".write": "auth != null && ((root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active') || (auth.uid === $uid && ((!data.exists() && newData.hasChildren(['email', 'firstName', 'lastName', 'role', 'status', 'createdAt'])) || data.exists())))",
 
         "role": {
-          ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active'",
+          ".write": "auth != null && ((root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active') || (auth.uid === $uid && !data.exists()))",
           ".validate": "newData.isString() && (newData.val() === 'reporter' || newData.val() === 'supervisor' || newData.val() === 'admin')"
         },
 
         "status": {
-          ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active'",
+          ".write": "auth != null && ((root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active') || (auth.uid === $uid && !data.exists()))",
           ".validate": "newData.isString() && (newData.val() === 'pending' || newData.val() === 'pending_approval' || newData.val() === 'active' || newData.val() === 'inactive' || newData.val() === 'rejected')"
         },
 
@@ -32,6 +32,7 @@
         },
 
         "createdAt": {
+          ".write": "auth != null && ((root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active') || (auth.uid === $uid && !data.exists()))",
           ".validate": "newData.isString()"
         },
 

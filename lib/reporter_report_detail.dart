@@ -90,6 +90,18 @@ class ReporterReportDetail extends StatelessWidget {
                       report['location'] ?? 'Unknown',
                       style: Theme.of(context).textTheme.bodyLarge,
                     ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Department',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      report['department'] ?? 'Not specified',
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
                   ],
                 ),
               ),
@@ -121,7 +133,7 @@ class ReporterReportDetail extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      _formatDate(report['date']),
+                      _formatDate(_resolveIncidentDate(report)),
                       style: Theme.of(context).textTheme.bodyLarge,
                     ),
                   ],
@@ -581,15 +593,36 @@ class ReporterReportDetail extends StatelessWidget {
     );
   }
 
+  dynamic _resolveIncidentDate(Map<String, dynamic> report) {
+    for (final key in const ['date', 'incidentDate', 'createdAt', 'timestamp']) {
+      final value = report[key];
+      if (_parseDate(value) != null) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  DateTime? _parseDate(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is int) {
+      return DateTime.fromMillisecondsSinceEpoch(raw);
+    }
+
+    final text = raw.toString().trim();
+    if (text.isEmpty) return null;
+
+    final parsedInt = int.tryParse(text);
+    if (parsedInt != null) {
+      return DateTime.fromMillisecondsSinceEpoch(parsedInt);
+    }
+
+    return DateTime.tryParse(text);
+  }
+
   String _formatDate(dynamic dateString) {
-    if (dateString == null || dateString.toString().isEmpty) {
-      return 'Unknown';
-    }
-    try {
-      final date = DateTime.parse(dateString.toString());
-      return '${date.day}/${date.month}/${date.year}';
-    } catch (e) {
-      return 'Unknown';
-    }
+    final date = _parseDate(dateString);
+    if (date == null) return 'Unknown';
+    return '${date.day}/${date.month}/${date.year}';
   }
 }

@@ -8,6 +8,7 @@ class IncidentDraft {
   final String description;
   final DateTime incidentDate;
   final String location;
+  final String department;
   final List<String> imageUrls;
   final String? videoUrl;
   final double? latitude;
@@ -20,6 +21,7 @@ class IncidentDraft {
     required this.description,
     required this.incidentDate,
     required this.location,
+    required this.department,
     this.reporterEmail,
     this.imageUrls = const [],
     this.videoUrl,
@@ -37,6 +39,7 @@ class IncidentDraft {
       'description': description,
       'date': incidentDate.toIso8601String(),
       'location': location,
+      'department': department,
       'imageUrls': imageUrls,
       'videoUrl': videoUrl,
       'latitude': latitude,
@@ -54,15 +57,21 @@ class IncidentReviewUpdate {
   final String status;
   final String severity;
   final String notes;
+  final String? reviewerUid;
+  final String? reviewerName;
 
   const IncidentReviewUpdate({
     required this.status,
     required this.severity,
     required this.notes,
+    this.reviewerUid,
+    this.reviewerName,
   });
 
   Map<String, dynamic> toUpdatePayload() {
     final now = DateTime.now().toIso8601String();
+    final normalizedReviewerUid = reviewerUid?.trim() ?? '';
+    final normalizedReviewerName = reviewerName?.trim() ?? '';
     return {
       'status': status,
       'severity': severity,
@@ -70,6 +79,12 @@ class IncidentReviewUpdate {
       'lastModified': now,
       'updatedAt': now,
       'statusChangedAt': now,
+      if (normalizedReviewerUid.isNotEmpty)
+        'lastReviewedByUid': normalizedReviewerUid,
+      if (normalizedReviewerName.isNotEmpty)
+        'lastReviewedByName': normalizedReviewerName,
+      if (normalizedReviewerUid.isNotEmpty || normalizedReviewerName.isNotEmpty)
+        'lastReviewedAt': now,
       if (status == 'closed') 'closedAt': now,
     };
   }
