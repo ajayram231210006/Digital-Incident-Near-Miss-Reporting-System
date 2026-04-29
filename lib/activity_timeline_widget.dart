@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'app_theme.dart';
 
 class ActivityTimelineWidget extends StatefulWidget {
   final User user;
+  final ValueChanged<String>? onActivityTap;
 
-  const ActivityTimelineWidget({super.key, required this.user});
+  const ActivityTimelineWidget({
+    super.key,
+    required this.user,
+    this.onActivityTap,
+  });
 
   @override
   State<ActivityTimelineWidget> createState() => _ActivityTimelineWidgetState();
@@ -38,7 +44,9 @@ class _ActivityTimelineWidgetState extends State<ActivityTimelineWidget> {
                 activities.add({
                   'id': key,
                   'type': value['type'] ?? 'Unknown',
-                  'status': (value['status'] ?? 'open').toString().toLowerCase(),
+                  'status': (value['status'] ?? 'open')
+                      .toString()
+                      .toLowerCase(),
                   'date': date ?? DateTime.now(),
                   'description': value['description'] ?? 'No description',
                   'location': value['location'] ?? 'Unknown',
@@ -62,42 +70,15 @@ class _ActivityTimelineWidgetState extends State<ActivityTimelineWidget> {
   }
 
   Color _getStatusColor(String status) {
-    switch (status) {
-      case 'closed':
-        return Colors.green;
-      case 'active':
-        return Colors.orange;
-      case 'open':
-        return Colors.amber;
-      default:
-        return Colors.grey;
-    }
+    return AppStatus.resolve(status).color;
   }
 
   IconData _getStatusIcon(String status) {
-    switch (status) {
-      case 'closed':
-        return Icons.check_circle;
-      case 'active':
-        return Icons.schedule;
-      case 'open':
-        return Icons.hourglass_bottom;
-      default:
-        return Icons.info;
-    }
+    return AppStatus.resolve(status).icon;
   }
 
   String _getStatusLabel(String status) {
-    switch (status) {
-      case 'closed':
-        return 'Resolved';
-      case 'active':
-        return 'In Progress';
-      case 'open':
-        return 'Pending';
-      default:
-        return 'Unknown';
-    }
+    return AppStatus.resolve(status).label;
   }
 
   String _formatTime(DateTime date) {
@@ -134,36 +115,29 @@ class _ActivityTimelineWidgetState extends State<ActivityTimelineWidget> {
 
         return Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.purple.withValues(alpha: 0.1),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            borderRadius: AppRadii.large,
+            boxShadow: AppShadows.subtle,
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: AppRadii.large,
             child: Container(
               decoration: BoxDecoration(
-                gradient: LinearGradient(
+                gradient: const LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [Colors.white, Colors.grey.shade50],
+                  colors: [AppColors.surface, AppColors.surfaceRaised],
                 ),
               ),
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(18),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Header
                   Text(
                     'Recent Activity',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   // Timeline
@@ -175,18 +149,18 @@ class _ActivityTimelineWidgetState extends State<ActivityTimelineWidget> {
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       child: Container(
                         height: 1,
-                        color: Colors.grey.shade100,
+                        color: AppColors.outline.withValues(alpha: 0.45),
                       ),
                     ),
                     itemBuilder: (context, index) {
                       final activity = activities[index];
                       final statusColor = _getStatusColor(activity['status']);
                       final statusIcon = _getStatusIcon(activity['status']);
-                      final statusLabel =
-                          _getStatusLabel(activity['status']);
+                      final statusLabel = _getStatusLabel(activity['status']);
                       final timeStr = _formatTime(activity['date']);
 
                       return _ActivityTimelineItem(
+                        reportId: activity['id'].toString(),
                         icon: statusIcon,
                         color: statusColor,
                         title: activity['type'],
@@ -195,6 +169,7 @@ class _ActivityTimelineWidgetState extends State<ActivityTimelineWidget> {
                         time: timeStr,
                         isFirst: index == 0,
                         isLast: index == activities.length - 1,
+                        onTap: widget.onActivityTap,
                       );
                     },
                   ),
@@ -210,6 +185,7 @@ class _ActivityTimelineWidgetState extends State<ActivityTimelineWidget> {
 
 // Timeline Item Widget
 class _ActivityTimelineItem extends StatelessWidget {
+  final String reportId;
   final IconData icon;
   final Color color;
   final String title;
@@ -218,8 +194,10 @@ class _ActivityTimelineItem extends StatelessWidget {
   final String time;
   final bool isFirst;
   final bool isLast;
+  final ValueChanged<String>? onTap;
 
   const _ActivityTimelineItem({
+    required this.reportId,
     required this.icon,
     required this.color,
     required this.title,
@@ -228,113 +206,135 @@ class _ActivityTimelineItem extends StatelessWidget {
     required this.time,
     required this.isFirst,
     required this.isLast,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Timeline line and dot
-        Column(
-          children: [
-            // Dot
-            Container(
-              width: 12,
-              height: 12,
-              decoration: BoxDecoration(
-                color: color,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 2),
-                boxShadow: [
-                  BoxShadow(
-                    color: color.withValues(alpha: 0.3),
-                    blurRadius: 4,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: AppRadii.large,
+        onTap: onTap == null ? null : () => onTap!(reportId),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Timeline line and dot
+              Column(
+                children: [
+                  // Dot
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.surface, width: 2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: color.withValues(alpha: 0.3),
+                          blurRadius: 4,
+                        ),
+                      ],
+                    ),
                   ),
+                  // Line
+                  if (!isLast)
+                    Container(width: 2, height: 60, color: AppColors.outline),
                 ],
               ),
-            ),
-            // Line
-            if (!isLast)
-              Container(
-                width: 2,
-                height: 60,
-                color: Colors.grey.shade200,
-              ),
-          ],
-        ),
-        const SizedBox(width: 12),
-        // Content
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(width: 12),
+              // Content
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            title,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  title,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  subtitle,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            subtitle,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            decoration: BoxDecoration(
+                              color: color.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: color.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Text(
+                              status,
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: color,
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              time,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            size: 18,
+                            color: AppColors.textSecondary.withValues(
+                              alpha: 0.7,
+                            ),
+                          ),
+                        ],
                       ),
-                      decoration: BoxDecoration(
-                        color: color.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: color.withValues(alpha: 0.3)),
-                      ),
-                      child: Text(
-                        status,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: color,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  time,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey.shade500,
+                    ],
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 }

@@ -1,6 +1,10 @@
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/material.dart';
+
+import 'app_theme.dart';
+import 'organization_analytics_page.dart';
+import 'ui_components.dart';
 
 class AdminDashboard extends StatefulWidget {
   final User user;
@@ -13,14 +17,17 @@ class AdminDashboard extends StatefulWidget {
 
 class _AdminDashboardState extends State<AdminDashboard>
     with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  late DatabaseReference _usersRef;
+  late final TabController _tabController;
+  late final DatabaseReference _usersRef;
+  late final DatabaseReference _rootRef;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
-    _usersRef = FirebaseDatabase.instance.ref('users');
+    _rootRef = FirebaseDatabase.instance.ref();
+    _usersRef = _rootRef.child('users');
+    _backfillRoleDirectory();
   }
 
   @override
@@ -29,133 +36,275 @@ class _AdminDashboardState extends State<AdminDashboard>
     super.dispose();
   }
 
+  Future<void> _syncRoleDirectory({
+    required String uid,
+    required String role,
+    required String status,
+  }) async {
+    final normalizedRole = role.toLowerCase();
+    final normalizedStatus = status.toLowerCase();
+    final updates = <String, Object?>{};
+
+    if (normalizedRole == 'reporter') {
+      updates['roleDirectory/reporters/$uid'] = normalizedStatus == 'active'
+          ? true
+          : null;
+    } else if (normalizedRole == 'supervisor') {
+      updates['roleDirectory/supervisors/$uid'] = normalizedStatus == 'active'
+          ? true
+          : null;
+    }
+
+    if (updates.isNotEmpty) {
+      await _rootRef.update(updates);
+    }
+  }
+
+  Future<void> _backfillRoleDirectory() async {
+    try {
+      final snapshot = await _usersRef.get();
+      if (!snapshot.exists || snapshot.value is! Map) return;
+
+      final updates = <String, Object?>{};
+      final users = snapshot.value as Map;
+      for (final entry in users.entries) {
+        final uid = entry.key.toString();
+        final rawUser = entry.value;
+        if (rawUser is! Map) continue;
+
+        final role = rawUser['role']?.toString().toLowerCase() ?? '';
+        final status = rawUser['status']?.toString().toLowerCase() ?? '';
+
+        if (role == 'reporter') {
+          updates['roleDirectory/reporters/$uid'] = status == 'active'
+              ? true
+              : null;
+        } else if (role == 'supervisor') {
+          updates['roleDirectory/supervisors/$uid'] = status == 'active'
+              ? true
+              : null;
+        }
+      }
+
+      if (updates.isNotEmpty) {
+        await _rootRef.update(updates);
+      }
+    } catch (_) {}
+  }
+
   Future<void> _approveUser(String uid, String role) async {
     try {
       await _usersRef.child(uid).update({'status': 'active'});
+      await _syncRoleDirectory(uid: uid, role: role, status: 'active');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('User approved successfully'),
-            backgroundColor: Colors.green,
-          ),
+        showAppSnackBar(
+          context,
+          'User approved successfully.',
+          type: AppSnackBarType.success,
         );
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        showAppSnackBar(
+          context,
+          'We could not approve that user right now.',
+          type: AppSnackBarType.error,
         );
       }
     }
   }
 
-  Future<void> _rejectUser(String uid) async {
+  Future<void> _rejectUser(String uid, String role) async {
     try {
       await _usersRef.child(uid).update({'status': 'rejected'});
+      await _syncRoleDirectory(uid: uid, role: role, status: 'rejected');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('User rejected'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+        showAppSnackBar(context, 'User rejected.', type: AppSnackBarType.info);
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        showAppSnackBar(
+          context,
+          'We could not update that user right now.',
+          type: AppSnackBarType.error,
         );
       }
     }
   }
 
-  Future<void> _deactivateUser(String uid) async {
+  Future<void> _deactivateUser(String uid, String role) async {
     try {
       await _usersRef.child(uid).update({'status': 'inactive'});
+      await _syncRoleDirectory(uid: uid, role: role, status: 'inactive');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('User deactivated'),
-            backgroundColor: Colors.orange,
-          ),
+        showAppSnackBar(
+          context,
+          'User deactivated.',
+          type: AppSnackBarType.info,
         );
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        showAppSnackBar(
+          context,
+          'We could not deactivate that user right now.',
+          type: AppSnackBarType.error,
+        );
+      }
+    }
+  }
+
+  Future<void> _restoreUser(String uid, String role) async {
+    try {
+      await _usersRef.child(uid).update({'status': 'active'});
+      await _syncRoleDirectory(uid: uid, role: role, status: 'active');
+      if (mounted) {
+        showAppSnackBar(
+          context,
+          'User restored successfully.',
+          type: AppSnackBarType.success,
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        showAppSnackBar(
+          context,
+          'We could not restore that user right now.',
+          type: AppSnackBarType.error,
         );
       }
     }
   }
 
   Future<void> _showLogoutDialog() async {
-    showDialog(
+    await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(Icons.logout, color: Colors.red.shade600),
-            const SizedBox(width: 12),
-            const Text('Logout'),
-          ],
-        ),
-        content: const Text('Are you sure you want to logout?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              if (context.mounted) {
-                Navigator.pop(context);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.shade600,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Logout'),
+          content: const Text('Are you sure you want to logout?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
             ),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
+            ElevatedButton(
+              onPressed: () async {
+                await FirebaseAuth.instance.signOut();
+                if (context.mounted) {
+                  Navigator.of(context).pop();
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+              child: const Text('Logout'),
+            ),
+          ],
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Admin Dashboard'),
-        backgroundColor: Colors.blue.shade600,
-        elevation: 4,
-        foregroundColor: Colors.white,
+        centerTitle: false,
+        toolbarHeight: 82,
+        titleSpacing: AppSpacing.lg,
+        title: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Admin Dashboard',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              widget.user.email ?? 'Admin',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
         actions: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Center(
-              child: Text(
-                'Admin: ${widget.user.email}',
-                style: const TextStyle(fontSize: 14, color: Colors.white),
+          IconButton(
+            tooltip: 'Organization analytics',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) =>
+                      OrganizationAnalyticsPage(user: widget.user),
+                ),
+              );
+            },
+            icon: const Icon(Icons.analytics_outlined),
+          ),
+          IconButton(
+            onPressed: _showLogoutDialog,
+            icon: const Icon(Icons.logout),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(72),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              0,
+              AppSpacing.md,
+              AppSpacing.md,
+            ),
+            child: Container(
+              decoration: BoxDecoration(
+                color: AppColors.surfaceRaised,
+                borderRadius: AppRadii.large,
+              ),
+              child: TabBar(
+                controller: _tabController,
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                indicator: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: AppRadii.large,
+                ),
+                indicatorSize: TabBarIndicatorSize.tab,
+                labelColor: Colors.white,
+                unselectedLabelColor: AppColors.textSecondary,
+                labelStyle: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+                unselectedLabelStyle: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+                labelPadding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.sm,
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.sm,
+                  vertical: AppSpacing.sm,
+                ),
+                dividerColor: Colors.transparent,
+                tabs: const [
+                  Tab(height: 48, text: 'Pending'),
+                  Tab(height: 48, text: 'Reporters'),
+                  Tab(height: 48, text: 'Supervisors'),
+                  Tab(height: 48, text: 'Stats'),
+                ],
               ),
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: _showLogoutDialog,
-          ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.hourglass_empty), text: 'Pending'),
-            Tab(icon: Icon(Icons.people), text: 'Reporters'),
-            Tab(icon: Icon(Icons.shield), text: 'Supervisors'),
-            Tab(icon: Icon(Icons.bar_chart), text: 'Statistics'),
-          ],
         ),
       ),
       body: TabBarView(
@@ -166,8 +315,24 @@ class _AdminDashboardState extends State<AdminDashboard>
             onApprove: _approveUser,
             onReject: _rejectUser,
           ),
-          _ReportersTab(usersRef: _usersRef, onDeactivate: _deactivateUser),
-          _SupervisorsTab(usersRef: _usersRef, onDeactivate: _deactivateUser),
+          _ActiveUsersTab(
+            usersRef: _usersRef,
+            role: 'reporter',
+            title: 'No reporters found',
+            icon: Icons.people_outline_rounded,
+            accent: AppColors.primary,
+            onDeactivate: _deactivateUser,
+            onRestore: _restoreUser,
+          ),
+          _ActiveUsersTab(
+            usersRef: _usersRef,
+            role: 'supervisor',
+            title: 'No supervisors found',
+            icon: Icons.shield_outlined,
+            accent: AppColors.secondary,
+            onDeactivate: _deactivateUser,
+            onRestore: _restoreUser,
+          ),
           _StatisticsTab(usersRef: _usersRef),
         ],
       ),
@@ -177,8 +342,8 @@ class _AdminDashboardState extends State<AdminDashboard>
 
 class _PendingUsersTab extends StatelessWidget {
   final DatabaseReference usersRef;
-  final Function(String, String) onApprove;
-  final Function(String) onReject;
+  final void Function(String uid, String role) onApprove;
+  final void Function(String uid, String role) onReject;
 
   const _PendingUsersTab({
     required this.usersRef,
@@ -186,134 +351,173 @@ class _PendingUsersTab extends StatelessWidget {
     required this.onReject,
   });
 
+  String _formatRequestedAt(BuildContext context, dynamic rawCreatedAt) {
+    final createdAt = rawCreatedAt?.toString().trim();
+    if (createdAt == null || createdAt.isEmpty) {
+      return 'Requested on an unknown date';
+    }
+
+    final parsed = DateTime.tryParse(createdAt);
+    if (parsed == null) {
+      return 'Requested on $createdAt';
+    }
+
+    final localizations = MaterialLocalizations.of(context);
+    final localTime = parsed.toLocal();
+    final dateLabel = localizations.formatMediumDate(localTime);
+    final timeLabel = localizations.formatTimeOfDay(
+      TimeOfDay.fromDateTime(localTime),
+      alwaysUse24HourFormat: false,
+    );
+
+    return 'Requested on $dateLabel at $timeLabel';
+  }
+
+  String _formatRoleLabel(String role) {
+    final normalized = role.trim().toLowerCase();
+    if (normalized.isEmpty) return 'User';
+    return '${normalized[0].toUpperCase()}${normalized.substring(1)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DatabaseEvent>(
       stream: usersRef.onValue,
       builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const _AdminDataError(
-            message:
-                'Unable to load users. Check Realtime Database rules for admin read access on /users.',
-          );
-        }
-
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
-          return const Center(child: Text('No users found'));
+        final data = snapshot.data?.snapshot.value as Map?;
+        if (data == null) {
+          return const AppEmptyState(
+            icon: Icons.manage_accounts_outlined,
+            title: 'No users found',
+            description: 'New account requests will show up here.',
+          );
         }
 
         final users = <MapEntry<String, Map<String, dynamic>>>[];
-        final data = Map<String, dynamic>.from(
-          snapshot.data!.snapshot.value as Map,
-        );
-
-        data.forEach((uid, userData) {
-          final user = Map<String, dynamic>.from(userData as Map);
-          final status = user['status'] as String? ?? 'pending_approval';
-          if (status == 'pending_approval') {
+        data.forEach((uid, value) {
+          final user = Map<String, dynamic>.from(value as Map);
+          if ((user['status'] as String? ?? 'pending_approval') ==
+              'pending_approval') {
             users.add(MapEntry(uid, user));
           }
         });
 
         if (users.isEmpty) {
-          return const Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.check_circle, size: 80, color: Colors.green),
-                SizedBox(height: 20),
-                Text('No pending approvals'),
-              ],
-            ),
+          return AppEmptyState(
+            icon: Icons.check_circle_outline_rounded,
+            title: 'No pending approvals',
+            description:
+                'All registration requests have been reviewed. Check back later for new users.',
+            actionLabel: 'Refresh',
+            onAction: () {},
           );
         }
 
         return ListView.builder(
+          padding: const EdgeInsets.all(AppSpacing.lg),
           itemCount: users.length,
           itemBuilder: (context, index) {
             final uid = users[index].key;
-            final userData = users[index].value;
+            final user = users[index].value;
+            final role = user['role']?.toString() ?? 'user';
+            final accent = role == 'supervisor'
+                ? AppColors.secondary
+                : AppColors.primary;
 
-            return Card(
-              margin: const EdgeInsets.all(12),
-              elevation: 4,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+            return Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: AppSectionCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.all(AppSpacing.md),
                           decoration: BoxDecoration(
-                            color: Colors.orange.shade100,
-                            borderRadius: BorderRadius.circular(50),
+                            color: accent.withValues(alpha: 0.12),
+                            borderRadius: AppRadii.medium,
                           ),
                           child: Icon(
-                            Icons.hourglass_empty,
-                            color: Colors.orange.shade700,
+                            role == 'supervisor'
+                                ? Icons.shield_outlined
+                                : Icons.person_outline_rounded,
+                            color: accent,
                           ),
                         ),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: AppSpacing.md),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '${userData['firstName']} ${userData['lastName']}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
+                                '${user['firstName'] ?? ''} ${user['lastName'] ?? ''}'
+                                    .trim(),
+                                style: Theme.of(context).textTheme.titleSmall,
                               ),
+                              const SizedBox(height: 4),
                               Text(
-                                userData['email'] ?? 'No email',
-                                style: const TextStyle(color: Colors.grey),
+                                user['email']?.toString() ?? 'No email',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(color: AppColors.textSecondary),
+                              ),
+                              const SizedBox(height: AppSpacing.sm),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: accent.withValues(alpha: 0.12),
+                                  borderRadius: AppRadii.pill,
+                                ),
+                                child: Text(
+                                  _formatRoleLabel(role),
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        color: accent,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                ),
                               ),
                             ],
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    Chip(
-                      label: Text(
-                        userData['role'].toString().toUpperCase(),
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                      backgroundColor: userData['role'] == 'supervisor'
-                          ? Colors.purple
-                          : Colors.blue,
-                    ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: AppSpacing.md),
                     Text(
-                      'Applied: ${userData['createdAt'] ?? 'Unknown date'}',
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      _formatRequestedAt(context, user['createdAt']),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
                     ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+                    const SizedBox(height: AppSpacing.lg),
+                    Wrap(
+                      spacing: AppSpacing.md,
+                      runSpacing: AppSpacing.md,
                       children: [
-                        ElevatedButton.icon(
-                          onPressed: () => _showRejectDialog(context, uid),
-                          icon: const Icon(Icons.close, size: 18),
-                          label: const Text('Reject'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red,
+                        SizedBox(
+                          width: 156,
+                          child: OutlinedButton.icon(
+                            onPressed: () => onReject(uid, role),
+                            icon: const Icon(Icons.close_rounded),
+                            label: const Text('Reject'),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        ElevatedButton.icon(
-                          onPressed: () => onApprove(uid, userData['role']),
-                          icon: const Icon(Icons.check_circle, size: 18),
-                          label: const Text('Approve'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
+                        SizedBox(
+                          width: 156,
+                          child: ElevatedButton.icon(
+                            onPressed: () => onApprove(uid, role),
+                            icon: const Icon(
+                              Icons.check_circle_outline_rounded,
+                            ),
+                            label: const Text('Approve'),
                           ),
                         ),
                       ],
@@ -327,180 +531,126 @@ class _PendingUsersTab extends StatelessWidget {
       },
     );
   }
-
-  void _showRejectDialog(BuildContext context, String uid) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Reject User'),
-        content: const Text(
-          'Are you sure you want to reject this user request?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              onReject(uid);
-              Navigator.pop(context);
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Reject'),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
-class _ReportersTab extends StatelessWidget {
+class _ActiveUsersTab extends StatelessWidget {
   final DatabaseReference usersRef;
-  final Function(String) onDeactivate;
+  final String role;
+  final String title;
+  final IconData icon;
+  final Color accent;
+  final void Function(String uid, String role) onDeactivate;
+  final void Function(String uid, String role) onRestore;
 
-  const _ReportersTab({required this.usersRef, required this.onDeactivate});
+  const _ActiveUsersTab({
+    required this.usersRef,
+    required this.role,
+    required this.title,
+    required this.icon,
+    required this.accent,
+    required this.onDeactivate,
+    required this.onRestore,
+  });
+
+  String _formatStatusLabel(String? status) {
+    final normalized = (status ?? '').trim().toLowerCase();
+    if (normalized.isEmpty) return 'Unknown';
+    return normalized
+        .split('_')
+        .map(
+          (segment) => segment.isEmpty
+              ? segment
+              : '${segment[0].toUpperCase()}${segment.substring(1)}',
+        )
+        .join(' ');
+  }
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DatabaseEvent>(
       stream: usersRef.onValue,
       builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const _AdminDataError(
-            message:
-                'Unable to load reporters. Check Realtime Database rules for admin read access on /users.',
-          );
-        }
-
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
-          return const Center(child: Text('No reporters found'));
-        }
-
-        final reporters = <MapEntry<String, Map<String, dynamic>>>[];
-        final data = Map<String, dynamic>.from(
-          snapshot.data!.snapshot.value as Map,
-        );
-
-        data.forEach((uid, userData) {
-          final user = Map<String, dynamic>.from(userData as Map);
-          if (user['role'] == 'reporter' && user['status'] == 'active') {
-            reporters.add(MapEntry(uid, user));
-          }
-        });
-
-        if (reporters.isEmpty) {
-          return const Center(child: Text('No active reporters'));
-        }
-
-        return ListView.builder(
-          itemCount: reporters.length,
-          itemBuilder: (context, index) {
-            final uid = reporters[index].key;
-            final userData = reporters[index].value;
-
-            return Card(
-              margin: const EdgeInsets.all(12),
-              child: ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade100,
-                    borderRadius: BorderRadius.circular(50),
-                  ),
-                  child: Icon(Icons.person, color: Colors.blue.shade700),
-                ),
-                title: Text('${userData['firstName']} ${userData['lastName']}'),
-                subtitle: Text(userData['email'] ?? 'No email'),
-                trailing: PopupMenuButton(
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      child: const Text('Deactivate'),
-                      onTap: () => onDeactivate(uid),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-class _SupervisorsTab extends StatelessWidget {
-  final DatabaseReference usersRef;
-  final Function(String) onDeactivate;
-
-  const _SupervisorsTab({required this.usersRef, required this.onDeactivate});
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<DatabaseEvent>(
-      stream: usersRef.onValue,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const _AdminDataError(
-            message:
-                'Unable to load supervisors. Check Realtime Database rules for admin read access on /users.',
+        final data = snapshot.data?.snapshot.value as Map?;
+        if (data == null) {
+          return AppEmptyState(
+            icon: icon,
+            title: title,
+            description: 'No users are available in this section yet.',
           );
         }
 
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
-          return const Center(child: Text('No supervisors found'));
-        }
-
-        final supervisors = <MapEntry<String, Map<String, dynamic>>>[];
-        final data = Map<String, dynamic>.from(
-          snapshot.data!.snapshot.value as Map,
-        );
-
-        data.forEach((uid, userData) {
-          final user = Map<String, dynamic>.from(userData as Map);
-          if (user['role'] == 'supervisor' && user['status'] == 'active') {
-            supervisors.add(MapEntry(uid, user));
+        final users = <MapEntry<String, Map<String, dynamic>>>[];
+        data.forEach((uid, value) {
+          final user = Map<String, dynamic>.from(value as Map);
+          final status = user['status']?.toString().toLowerCase();
+          if (user['role'] == role &&
+              (status == 'active' || status == 'inactive')) {
+            users.add(MapEntry(uid, user));
           }
         });
 
-        if (supervisors.isEmpty) {
-          return const Center(child: Text('No active supervisors'));
+        if (users.isEmpty) {
+          return AppEmptyState(
+            icon: icon,
+            title: title,
+            description: 'Users in this role will appear here.',
+          );
         }
 
         return ListView.builder(
-          itemCount: supervisors.length,
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          itemCount: users.length,
           itemBuilder: (context, index) {
-            final uid = supervisors[index].key;
-            final userData = supervisors[index].value;
-
-            return Card(
-              margin: const EdgeInsets.all(12),
-              child: ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.purple.shade100,
-                    borderRadius: BorderRadius.circular(50),
-                  ),
-                  child: Icon(Icons.shield, color: Colors.purple.shade700),
-                ),
-                title: Text('${userData['firstName']} ${userData['lastName']}'),
-                subtitle: Text(userData['email'] ?? 'No email'),
-                trailing: PopupMenuButton(
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      child: const Text('Deactivate'),
-                      onTap: () => onDeactivate(uid),
+            final uid = users[index].key;
+            final user = users[index].value;
+            final status = user['status']?.toString() ?? '';
+            final isInactive = status.toLowerCase() == 'inactive';
+            return Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: AppSectionCard(
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: 0.12),
+                      borderRadius: AppRadii.medium,
                     ),
-                  ],
+                    child: Icon(icon, color: accent),
+                  ),
+                  title: Text(
+                    '${user['firstName'] ?? ''} ${user['lastName'] ?? ''}'
+                        .trim(),
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 4),
+                      Text(user['email']?.toString() ?? 'No email'),
+                      const SizedBox(height: 8),
+                      AppStatusBadge(status: _formatStatusLabel(status)),
+                    ],
+                  ),
+                  trailing: PopupMenuButton<String>(
+                    onSelected: (value) {
+                      if (value == 'deactivate') {
+                        onDeactivate(uid, role);
+                      }
+                      if (value == 'restore') {
+                        onRestore(uid, role);
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      PopupMenuItem<String>(
+                        value: isInactive ? 'restore' : 'deactivate',
+                        child: Text(isInactive ? 'Restore' : 'Deactivate'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -521,170 +671,116 @@ class _StatisticsTab extends StatelessWidget {
     return StreamBuilder<DatabaseEvent>(
       stream: usersRef.onValue,
       builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const _AdminDataError(
-            message:
-                'Unable to load statistics. Check Realtime Database rules for admin read access on /users.',
-          );
-        }
-
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
-          return const Center(child: Text('No data available'));
+        final data = snapshot.data?.snapshot.value as Map?;
+        if (data == null) {
+          return const AppEmptyState(
+            icon: Icons.bar_chart_rounded,
+            title: 'No data available',
+            description: 'Statistics will appear when users are added.',
+          );
         }
 
-        final data = Map<String, dynamic>.from(
-          snapshot.data!.snapshot.value as Map,
-        );
-        int totalUsers = 0;
-        int activeReporters = 0;
-        int activeSupervisors = 0;
-        int pendingApprovals = 0;
-        int rejectedUsers = 0;
+        var totalUsers = 0;
+        var activeReporters = 0;
+        var activeSupervisors = 0;
+        var pendingApprovals = 0;
+        var rejectedUsers = 0;
+        var inactiveUsers = 0;
 
-        data.forEach((uid, userData) {
-          final user = Map<String, dynamic>.from(userData as Map);
+        data.forEach((key, value) {
+          final user = Map<String, dynamic>.from(value as Map);
           totalUsers++;
+          final status = user['status']?.toString() ?? 'pending_approval';
+          final role = user['role']?.toString();
 
-          final status = user['status'] as String? ?? 'pending_approval';
-          final role = user['role'] as String?;
-
-          if (status == 'active') {
-            if (role == 'reporter') {
-              activeReporters++;
-            } else if (role == 'supervisor') {
-              activeSupervisors++;
-            }
-          } else if (status == 'pending_approval') {
-            pendingApprovals++;
-          } else if (status == 'rejected') {
-            rejectedUsers++;
-          }
+          if (status == 'active' && role == 'reporter') activeReporters++;
+          if (status == 'active' && role == 'supervisor') activeSupervisors++;
+          if (status == 'pending_approval') pendingApprovals++;
+          if (status == 'rejected') rejectedUsers++;
+          if (status == 'inactive') inactiveUsers++;
         });
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              _StatCard(
-                title: 'Total Users',
-                count: totalUsers,
-                icon: Icons.people,
-                color: Colors.blue,
-              ),
-              const SizedBox(height: 12),
-              _StatCard(
-                title: 'Active Reporters',
-                count: activeReporters,
-                icon: Icons.person,
-                color: Colors.green,
-              ),
-              const SizedBox(height: 12),
-              _StatCard(
-                title: 'Active Supervisors',
-                count: activeSupervisors,
-                icon: Icons.shield,
-                color: Colors.purple,
-              ),
-              const SizedBox(height: 12),
-              _StatCard(
-                title: 'Pending Approvals',
-                count: pendingApprovals,
-                icon: Icons.hourglass_empty,
-                color: Colors.orange,
-              ),
-              const SizedBox(height: 12),
-              _StatCard(
-                title: 'Rejected Users',
-                count: rejectedUsers,
-                icon: Icons.block,
-                color: Colors.red,
-              ),
-            ],
+        final cards = <(String, int, IconData, Color)>[
+          (
+            'Total Users',
+            totalUsers,
+            Icons.people_outline_rounded,
+            AppColors.primary,
           ),
+          (
+            'Active Reporters',
+            activeReporters,
+            Icons.person_outline_rounded,
+            AppColors.success,
+          ),
+          (
+            'Active Supervisors',
+            activeSupervisors,
+            Icons.shield_outlined,
+            AppColors.secondary,
+          ),
+          (
+            'Pending Approvals',
+            pendingApprovals,
+            Icons.hourglass_top_rounded,
+            AppColors.warning,
+          ),
+          (
+            'Rejected Users',
+            rejectedUsers,
+            Icons.block_outlined,
+            AppColors.error,
+          ),
+          (
+            'Inactive Users',
+            inactiveUsers,
+            Icons.pause_circle_outline_rounded,
+            AppColors.textSecondary,
+          ),
+        ];
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          itemCount: cards.length,
+          itemBuilder: (context, index) {
+            final card = cards[index];
+            return Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: AppSectionCard(
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        color: card.$4.withValues(alpha: 0.12),
+                        borderRadius: AppRadii.medium,
+                      ),
+                      child: Icon(card.$3, color: card.$4),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Text(
+                        card.$1,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ),
+                    Text(
+                      '${card.$2}',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.headlineMedium?.copyWith(color: card.$4),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         );
       },
-    );
-  }
-}
-
-class _StatCard extends StatelessWidget {
-  final String title;
-  final int count;
-  final IconData icon;
-  final Color color;
-
-  const _StatCard({
-    required this.title,
-    required this.count,
-    required this.icon,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(50),
-              ),
-              child: Icon(icon, size: 32, color: color),
-            ),
-            const SizedBox(width: 24),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(color: Colors.grey)),
-                const SizedBox(height: 8),
-                Text(
-                  count.toString(),
-                  style: const TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AdminDataError extends StatelessWidget {
-  final String message;
-
-  const _AdminDataError({required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.lock_outline, size: 64, color: Colors.red.shade400),
-            const SizedBox(height: 16),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 16),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

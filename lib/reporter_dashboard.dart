@@ -3,14 +3,20 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
 import 'reporter.dart' show ReportIncidentForm;
+import 'reporter_identity.dart';
 import 'reporter_reports_list.dart';
 import 'reporter_report_detail.dart';
 import 'notifications_viewer.dart';
 import 'notification_service.dart';
+import 'offline_incident_queue_service.dart';
 import 'reporter_trends_widget.dart';
 import 'activity_timeline_widget.dart';
 import 'report_templates_dialog.dart';
 import 'performance_analytics_page.dart';
+import 'system_reports_viewer.dart';
+import 'app_theme.dart';
+import 'ui_components.dart';
+import 'user_profile_service.dart';
 
 class ReporterDashboard extends StatefulWidget {
   final User user;
@@ -20,56 +26,101 @@ class ReporterDashboard extends StatefulWidget {
   State<ReporterDashboard> createState() => _ReporterDashboardState();
 }
 
-class _ReporterDashboardState extends State<ReporterDashboard>
-    with SingleTickerProviderStateMixin {
+class _ReporterDashboardState extends State<ReporterDashboard> {
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   final NotificationService _notificationService = NotificationService();
-  late AnimationController _animationController;
+  final OfflineIncidentQueueService _offlineQueueService =
+      OfflineIncidentQueueService();
+  final UserProfileService _userProfileService = UserProfileService();
   StreamSubscription<Map<String, dynamic>>? _notificationTapSubscription;
   StreamSubscription<int>? _badgeCountSubscription;
+  StreamSubscription<bool>? _offlineStatusSubscription;
+  StreamSubscription<int>? _offlinePendingSubscription;
   late final Stream<int> _unreadCountStream;
-  bool _isFABOpen = false;
+  bool _syncingOfflineReports = false;
+  int _pendingOfflineReports = 0;
 
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 2000),
-      vsync: this,
-    )..repeat();
+    _validateReporterAccess();
     _unreadCountStream = _notificationService
         .getUnreadNotificationCount(widget.user.uid)
         .asBroadcastStream();
 
     _initializeNotifications();
+    _refreshOfflinePendingCount();
+    unawaited(_syncOfflineReports(silent: true));
+    _offlinePendingSubscription = _offlineQueueService
+        .watchPendingCount(widget.user.uid)
+        .listen((count) {
+          if (!mounted) return;
+          setState(() => _pendingOfflineReports = count);
+        });
+    _offlineStatusSubscription = _offlineQueueService.onlineStatusStream.listen(
+      (isOnline) {
+        if (!mounted) return;
+        if (isOnline) {
+          unawaited(_syncOfflineReports(silent: true));
+        }
+      },
+    );
+  }
+
+  Future<void> _validateReporterAccess() async {
+    try {
+      final profile = await _userProfileService.fetchProfile(widget.user.uid);
+      if (!mounted) return;
+
+      final isValid =
+          profile != null &&
+          profile.role == 'reporter' &&
+          !profile.isPendingApproval &&
+          !profile.isRejected &&
+          !profile.isInactive;
+
+      if (!isValid) {
+        showAppSnackBar(
+          context,
+          'Unauthorized: approved reporter access required.',
+          type: AppSnackBarType.error,
+        );
+        await FirebaseAuth.instance.signOut();
+      }
+    } catch (_) {}
   }
 
   Future<void> _initializeNotifications() async {
-    _notificationTapSubscription =
-        _notificationService.notificationTapStream.listen((notificationData) {
-      _handleNotificationTap(notificationData);
-    });
+    _notificationTapSubscription = _notificationService.notificationTapStream
+        .listen((notificationData) {
+          _handleNotificationTap(notificationData);
+        });
 
     _badgeCountSubscription = _unreadCountStream.listen((count) {
       _notificationService.updateAppBadgeCount(count);
     });
 
-    final pendingNotification =
-        _notificationService.consumePendingLaunchNotification();
+    final pendingNotification = _notificationService
+        .consumePendingLaunchNotification();
     if (pendingNotification != null && mounted) {
       _handleNotificationTap(pendingNotification);
     }
   }
 
-  Future<void> _handleNotificationTap(Map<String, dynamic> notificationData) async {
+  Future<void> _handleNotificationTap(
+    Map<String, dynamic> notificationData,
+  ) async {
     try {
       final reportId = notificationData['reportId'];
       if (reportId != null && reportId.toString().isNotEmpty && mounted) {
         // Fetch incident details
-        final snapshot = await _dbRef.child('incidents').child(reportId.toString()).get();
+        final snapshot = await _dbRef
+            .child('incidents')
+            .child(reportId.toString())
+            .get();
         if (snapshot.exists && mounted) {
           final reportData = Map<String, dynamic>.from(snapshot.value as Map);
-          
+
           // Navigate to report detail
           Navigator.of(context).push(
             MaterialPageRoute(
@@ -90,8 +141,43 @@ class _ReporterDashboardState extends State<ReporterDashboard>
   void dispose() {
     _notificationTapSubscription?.cancel();
     _badgeCountSubscription?.cancel();
-    _animationController.dispose();
+    _offlineStatusSubscription?.cancel();
+    _offlinePendingSubscription?.cancel();
+    _offlineQueueService.dispose();
     super.dispose();
+  }
+
+  Future<void> _refreshOfflinePendingCount() async {
+    final count = await _offlineQueueService.getPendingCount(widget.user.uid);
+    if (!mounted) return;
+    setState(() => _pendingOfflineReports = count);
+  }
+
+  Future<void> _syncOfflineReports({bool silent = false}) async {
+    if (_syncingOfflineReports) return;
+
+    setState(() => _syncingOfflineReports = true);
+    try {
+      final synced = await _offlineQueueService.syncPendingReportsForUser(
+        widget.user.uid,
+      );
+      await _refreshOfflinePendingCount();
+
+      if (!mounted || silent || synced == 0) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            synced == 1
+                ? '1 offline report was synced successfully.'
+                : '$synced offline reports were synced successfully.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _syncingOfflineReports = false);
+      }
+    }
   }
 
   Stream<Map<String, int>> _getReportStatsStream() {
@@ -112,7 +198,9 @@ class _ReporterDashboardState extends State<ReporterDashboard>
             final reporterUid = value['reporterUid']?.toString() ?? '';
             if (reporterUid == widget.user.uid) {
               total++;
-              final status = (value['status'] ?? 'open').toString().toLowerCase();
+              final status = (value['status'] ?? 'open')
+                  .toString()
+                  .toLowerCase();
 
               if (status == 'closed') {
                 approved++;
@@ -126,7 +214,12 @@ class _ReporterDashboardState extends State<ReporterDashboard>
         });
       }
 
-      return {'total': total, 'open': open, 'active': active, 'approved': approved};
+      return {
+        'total': total,
+        'open': open,
+        'active': active,
+        'approved': approved,
+      };
     });
   }
 
@@ -134,12 +227,81 @@ class _ReporterDashboardState extends State<ReporterDashboard>
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ReporterReportsList(
-          user: widget.user,
-          filterStatus: filter,
-        ),
+        builder: (context) =>
+            ReporterReportsList(user: widget.user, filterStatus: filter),
       ),
     );
+  }
+
+  void _openNewReport() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ReportIncidentForm(
+          reporter: ReporterIdentity.fromFirebaseUser(widget.user),
+        ),
+      ),
+    ).then((_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+  }
+
+  void _openTemplates() {
+    showDialog(
+      context: context,
+      builder: (context) => ReportTemplatesDialog(user: widget.user),
+    );
+  }
+
+  void _openAnalytics() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PerformanceAnalyticsPage(user: widget.user),
+      ),
+    );
+  }
+
+  void _openSystemReports() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SystemReportsViewer(user: widget.user),
+      ),
+    );
+  }
+
+  Future<void> _openReportDetail(String reportId) async {
+    try {
+      final snapshot = await _dbRef.child('incidents').child(reportId).get();
+      if (!mounted) return;
+
+      if (!snapshot.exists) {
+        showAppSnackBar(
+          context,
+          'That report is no longer available.',
+          type: AppSnackBarType.info,
+        );
+        return;
+      }
+
+      final reportData = Map<String, dynamic>.from(snapshot.value as Map);
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) =>
+              ReporterReportDetail(reportId: reportId, report: reportData),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        'We could not open that report right now.',
+        type: AppSnackBarType.error,
+      );
+    }
   }
 
   @override
@@ -148,8 +310,6 @@ class _ReporterDashboardState extends State<ReporterDashboard>
       appBar: AppBar(
         title: const Text('Dashboard'),
         elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
         actions: [
           StreamBuilder<int>(
             stream: _unreadCountStream,
@@ -162,7 +322,8 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (context) => NotificationsViewer(user: widget.user),
+                          builder: (context) =>
+                              NotificationsViewer(user: widget.user),
                         ),
                       );
                     },
@@ -175,8 +336,8 @@ class _ReporterDashboardState extends State<ReporterDashboard>
                       child: Container(
                         padding: const EdgeInsets.all(2),
                         decoration: BoxDecoration(
-                          color: Colors.red.shade500,
-                          borderRadius: BorderRadius.circular(12),
+                          color: AppColors.error,
+                          borderRadius: AppRadii.pill,
                         ),
                         constraints: const BoxConstraints(
                           minWidth: 20,
@@ -201,23 +362,28 @@ class _ReporterDashboardState extends State<ReporterDashboard>
             tooltip: 'Sign out',
             onPressed: () async {
               // Show confirmation dialog before logout
-              final shouldLogout = await showDialog<bool>(
-                context: context,
-                builder: (BuildContext dialogContext) => AlertDialog(
-                  title: const Text('Sign Out'),
-                  content: const Text('Are you sure you want to sign out?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(dialogContext, false),
-                      child: const Text('Cancel'),
+              final shouldLogout =
+                  await showDialog<bool>(
+                    context: context,
+                    builder: (BuildContext dialogContext) => AlertDialog(
+                      title: const Text('Sign Out'),
+                      content: const Text('Are you sure you want to sign out?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Cancel'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          child: const Text(
+                            'Sign Out',
+                            style: TextStyle(color: AppColors.error),
+                          ),
+                        ),
+                      ],
                     ),
-                    TextButton(
-                      onPressed: () => Navigator.pop(dialogContext, true),
-                      child: const Text('Sign Out', style: TextStyle(color: Colors.red)),
-                    ),
-                  ],
-                ),
-              ) ?? false;
+                  ) ??
+                  false;
 
               if (shouldLogout && context.mounted) {
                 await FirebaseAuth.instance.signOut();
@@ -244,308 +410,247 @@ class _ReporterDashboardState extends State<ReporterDashboard>
           final openReports = stats['open'] ?? 0;
           final activeReports = stats['active'] ?? 0;
           final approvedReports = stats['approved'] ?? 0;
+          final firstName =
+              (widget.user.displayName ??
+                      widget.user.email?.split('@').first ??
+                      'Reporter')
+                  .split(' ')
+                  .first;
 
           return SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 108),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Hero Section
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Colors.green.shade400,
-                        Colors.green.shade600,
-                      ],
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.green.shade400.withValues(alpha: 0.3),
-                        blurRadius: 20,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: ClipPath(
-                    clipper: _WaveClipper(),
-                    child: Container(
-                      padding: const EdgeInsets.fromLTRB(24, 32, 24, 48),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Welcome Header with Icon
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.2),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Icon(
-                                  Icons.waving_hand_outlined,
-                                  color: Colors.white,
-                                  size: 24,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Welcome back!',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleMedium
-                                          ?.copyWith(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                    ),
-                                    RichText(
-                                      text: TextSpan(
-                                        children: [
-                                          TextSpan(
-                                            text: (widget.user.displayName ?? widget.user.email?.split('@').first ?? 'Reporter')
-                                                .split(' ')
-                                                .first,
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .titleSmall
-                                                ?.copyWith(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                          // Subtitle with Icon
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Icon(
-                                  Icons.checklist_rtl,
-                                  color: Colors.white,
-                                  size: 18,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Stay on top of your reports and track progress',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(
-                                        color: Colors.white.withValues(alpha: 0.85),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
+                _DashboardHero(
+                  firstName: firstName,
+                  totalReports: totalReports,
+                  pendingReports: openReports,
+                  onViewReports: () => _navigateToReports(context, 'all'),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Report overview',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-
-                // Stats Section with Modern Design
-                Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Modern Stat Cards with Circular Progress
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _CircularStatCard(
-                              title: 'Total',
-                              count: totalReports,
-                              total: totalReports + openReports + activeReports + approvedReports,
-                              color: Colors.blue,
-                              icon: Icons.assignment,
-                              onTap: () =>
-                                  _navigateToReports(context, 'all'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _CircularStatCard(
-                              title: 'Pending',
-                              count: openReports,
-                              total: totalReports,
-                              color: Colors.orange,
-                              icon: Icons.schedule,
-                              onTap: () =>
-                                  _navigateToReports(context, 'open'),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _CircularStatCard(
-                              title: 'Active',
-                              count: activeReports,
-                              total: totalReports,
-                              color: Colors.amber,
-                              icon: Icons.hourglass_bottom,
-                              onTap: () =>
-                                  _navigateToReports(context, 'active'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _CircularStatCard(
-                              title: 'Resolved',
-                              count: approvedReports,
-                              total: totalReports,
-                              color: Colors.green,
-                              icon: Icons.check_circle,
-                              onTap: () =>
-                                  _navigateToReports(context, 'closed'),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 32),
-
-                      // Quick Actions Section
-                      Text(
-                        'Quick Actions',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 12),
-                      _QuickActionButton(
-                        label: 'Submit New Report',
-                        icon: Icons.add_circle_outline,
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  ReportIncidentForm(user: widget.user),
-                            ),
-                          ).then((_) {
-                            setState(() {});
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      _QuickActionButton(
-                        label: 'Use Template',
-                        icon: Icons.description_outlined,
-                        isPrimary: false,
-                        onPressed: () {
-                          showDialog(
-                            context: context,
-                            builder: (context) =>
-                                ReportTemplatesDialog(user: widget.user),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      _QuickActionButton(
-                        label: 'View All Reports',
-                        icon: Icons.list_alt,
-                        isPrimary: false,
-                        onPressed: () =>
-                            _navigateToReports(context, 'all'),
-                      ),
-                      const SizedBox(height: 32),
-
-                      // Trends Section
-                      ReporterTrendsWidget(user: widget.user),
-                      const SizedBox(height: 32),
-
-                      // Recent Activity
-                      ActivityTimelineWidget(user: widget.user),
-                    ],
+                const SizedBox(height: 12),
+                GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  childAspectRatio: 0.98,
+                  children: [
+                    _DashboardStatCard(
+                      title: 'Total reports',
+                      count: totalReports,
+                      total: totalReports,
+                      color: AppColors.primary,
+                      icon: Icons.assignment_outlined,
+                      hint: 'Everything you have submitted',
+                      onTap: () => _navigateToReports(context, 'all'),
+                    ),
+                    _DashboardStatCard(
+                      title: 'Pending review',
+                      count: openReports,
+                      total: totalReports,
+                      color: AppColors.statusOpen,
+                      icon: Icons.hourglass_top_rounded,
+                      hint: 'Waiting for action',
+                      onTap: () => _navigateToReports(context, 'open'),
+                    ),
+                    _DashboardStatCard(
+                      title: 'Active work',
+                      count: activeReports,
+                      total: totalReports,
+                      color: AppColors.statusActive,
+                      icon: Icons.autorenew_rounded,
+                      hint: 'Currently being processed',
+                      onTap: () => _navigateToReports(context, 'active'),
+                    ),
+                    _DashboardStatCard(
+                      title: 'Resolved',
+                      count: approvedReports,
+                      total: totalReports,
+                      color: AppColors.statusClosed,
+                      icon: Icons.check_circle_outline,
+                      hint: 'Closed successfully',
+                      onTap: () => _navigateToReports(context, 'closed'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Quick actions',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
                   ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _DashboardShortcutCard(
+                        icon: Icons.analytics_outlined,
+                        label: 'Analytics',
+                        color: AppColors.secondary,
+                        onTap: _openAnalytics,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _DashboardShortcutCard(
+                        icon: Icons.description_outlined,
+                        label: 'Templates',
+                        color: AppColors.statusOpen,
+                        onTap: _openTemplates,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _DashboardShortcutCard(
+                        icon: Icons.public,
+                        label: 'System',
+                        color: AppColors.statusActive,
+                        onTap: _openSystemReports,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _OfflineQueueCard(
+                  pendingCount: _pendingOfflineReports,
+                  syncing: _syncingOfflineReports,
+                  onSync: _pendingOfflineReports == 0 || _syncingOfflineReports
+                      ? null
+                      : () => _syncOfflineReports(),
+                ),
+                const SizedBox(height: 28),
+                ReporterTrendsWidget(user: widget.user),
+                const SizedBox(height: 28),
+                ActivityTimelineWidget(
+                  user: widget.user,
+                  onActivityTap: _openReportDetail,
                 ),
               ],
             ),
           );
         },
       ),
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _openNewReport,
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add_task_rounded),
+        label: const Text(
+          'New report',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardHero extends StatelessWidget {
+  final String firstName;
+  final int totalReports;
+  final int pendingReports;
+  final VoidCallback onViewReports;
+
+  const _DashboardHero({
+    required this.firstName,
+    required this.totalReports,
+    required this.pendingReports,
+    required this.onViewReports,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: AppColors.primaryGradient,
+        borderRadius: AppRadii.xl,
+        boxShadow: AppShadows.soft(AppColors.primary),
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_isFABOpen) ...[
-            _FABAction(
-              icon: Icons.analytics_outlined,
-              label: 'Analytics',
-              color: Colors.purple,
-              onTap: () {
-                setState(() => _isFABOpen = false);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) =>
-                        PerformanceAnalyticsPage(user: widget.user),
-                  ),
-                );
-              },
+          Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.16),
+                  borderRadius: AppRadii.medium,
+                ),
+                child: const Icon(
+                  Icons.dashboard_customize_outlined,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Good to see you, $firstName',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Track progress, submit updates, and stay ahead of pending reports.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.84),
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: _HeroMetric(
+                  label: 'Reports filed',
+                  value: '$totalReports',
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _HeroMetric(
+                  label: 'Need review',
+                  value: '$pendingReports',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          OutlinedButton.icon(
+            onPressed: onViewReports,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              side: BorderSide(
+                color: Colors.white.withValues(alpha: 0.35),
+              ),
+              minimumSize: const Size(double.infinity, 52),
+              shape: RoundedRectangleBorder(
+                borderRadius: AppRadii.medium,
+              ),
             ),
-            const SizedBox(height: 10),
-            _FABAction(
-              icon: Icons.description_outlined,
-              label: 'Templates',
-              color: Colors.orange,
-              onTap: () {
-                setState(() => _isFABOpen = false);
-                showDialog(
-                  context: context,
-                  builder: (context) =>
-                      ReportTemplatesDialog(user: widget.user),
-                );
-              },
-            ),
-            const SizedBox(height: 10),
-            _FABAction(
-              icon: Icons.list,
-              label: 'My Reports',
-              color: Colors.blue,
-              onTap: () {
-                setState(() => _isFABOpen = false);
-                _navigateToReports(context, 'all');
-              },
-            ),
-            const SizedBox(height: 10),
-          ],
-          FloatingActionButton.extended(
-            onPressed: () {
-              setState(() => _isFABOpen = !_isFABOpen);
-            },
-            backgroundColor: Colors.green,
-            icon: AnimatedRotation(
-              turns: _isFABOpen ? 0.125 : 0,
-              duration: const Duration(milliseconds: 200),
-              child: const Icon(Icons.add),
-            ),
-            label: Text(_isFABOpen ? 'Close' : 'Report'),
-            extendedPadding: const EdgeInsets.symmetric(horizontal: 20),
+            icon: const Icon(Icons.list_alt_outlined),
+            label: const Text('My reports'),
           ),
         ],
       ),
@@ -553,188 +658,194 @@ class _ReporterDashboardState extends State<ReporterDashboard>
   }
 }
 
-// Custom Wave Clipper for Hero Section
-class _WaveClipper extends CustomClipper<Path> {
-  @override
-  Path getClip(Size size) {
-    Path path = Path();
-    path.lineTo(0, size.height - 30);
-    path.quadraticBezierTo(
-      size.width / 4,
-      size.height,
-      size.width / 2,
-      size.height - 20,
-    );
-    path.quadraticBezierTo(
-      size.width * 0.75,
-      size.height - 40,
-      size.width,
-      size.height - 20,
-    );
-    path.lineTo(size.width, 0);
-    path.close();
-    return path;
-  }
+class _HeroMetric extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _HeroMetric({required this.label, required this.value});
 
   @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: AppRadii.large,
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Colors.white.withValues(alpha: 0.8),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// Circular Stat Card Widget
-class _CircularStatCard extends StatefulWidget {
+class _DashboardStatCard extends StatelessWidget {
   final String title;
   final int count;
   final int total;
   final Color color;
   final IconData icon;
+  final String hint;
   final VoidCallback onTap;
 
-  const _CircularStatCard({
+  const _DashboardStatCard({
     required this.title,
     required this.count,
     required this.total,
     required this.color,
     required this.icon,
+    required this.hint,
     required this.onTap,
   });
 
   @override
-  State<_CircularStatCard> createState() => _CircularStatCardState();
-}
-
-class _CircularStatCardState extends State<_CircularStatCard>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 200),
-      vsync: this,
-    );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final percentage =
-        widget.total > 0 ? (widget.count / widget.total * 100).toInt() : 0;
+    final percentage = total > 0 ? ((count / total) * 100).round() : 0;
 
-    return GestureDetector(
-      onTapDown: (_) => _controller.forward(),
-      onTapUp: (_) {
-        _controller.reverse();
-        widget.onTap();
-      },
-      onTapCancel: () => _controller.reverse(),
-      child: ScaleTransition(
-        scale: _scaleAnimation,
-        child: Container(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: AppRadii.xl,
+        child: Ink(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: widget.color.withValues(alpha: 0.15),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
+            color: AppColors.surface,
+            borderRadius: AppRadii.xl,
+            boxShadow: AppShadows.subtle,
+            border: Border.all(color: color.withValues(alpha: 0.12)),
+          ),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.12),
+                      borderRadius: AppRadii.medium,
+                    ),
+                    child: Icon(icon, color: color),
+                  ),
+                  const Spacer(),
+                  if (total > 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.10),
+                        borderRadius: AppRadii.pill,
+                      ),
+                      child: Text(
+                        '$percentage%',
+                        style: TextStyle(
+                          color: color,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const Spacer(),
+              Text(
+                '$count',
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                title,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                hint,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textSecondary,
+                  height: 1.3,
+                ),
               ),
             ],
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.white,
-                    Colors.grey.shade50,
-                  ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardShortcutCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _DashboardShortcutCard({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: AppRadii.large,
+        child: Ink(
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: AppRadii.large,
+            boxShadow: AppShadows.subtle,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          child: Column(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: AppRadii.medium,
                 ),
+                child: Icon(icon, color: color),
               ),
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  // Circular Progress
-                  SizedBox(
-                    width: 80,
-                    height: 80,
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        CircularProgressIndicator(
-                          value: widget.total > 0
-                              ? widget.count / widget.total
-                              : 0,
-                          strokeWidth: 6,
-                          backgroundColor: Colors.grey.shade200,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            widget.color,
-                          ),
-                        ),
-                        Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              widget.icon,
-                              color: widget.color,
-                              size: 28,
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    widget.count.toString(),
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: widget.color,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    widget.title,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: widget.color.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      '$percentage%',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: widget.color,
-                      ),
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 10),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
-            ),
+            ],
           ),
         ),
       ),
@@ -743,208 +854,83 @@ class _CircularStatCardState extends State<_CircularStatCard>
 }
 
 // Quick Action Button Widget
-class _QuickActionButton extends StatefulWidget {
-  final String label;
-  final IconData icon;
-  final VoidCallback onPressed;
-  final bool isPrimary;
+class _OfflineQueueCard extends StatelessWidget {
+  final int pendingCount;
+  final bool syncing;
+  final VoidCallback? onSync;
 
-  const _QuickActionButton({
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-    this.isPrimary = true,
+  const _OfflineQueueCard({
+    required this.pendingCount,
+    required this.syncing,
+    required this.onSync,
   });
 
   @override
-  State<_QuickActionButton> createState() => _QuickActionButtonState();
-}
-
-class _QuickActionButtonState extends State<_QuickActionButton>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => _controller.forward(),
-      onTapUp: (_) {
-        _controller.reverse();
-        widget.onPressed();
-      },
-      onTapCancel: () => _controller.reverse(),
-      child: ScaleTransition(
-        scale: Tween<double>(begin: 1.0, end: 0.95)
-            .animate(CurvedAnimation(
-              parent: _controller,
-              curve: Curves.easeInOut,
-            )),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            gradient: widget.isPrimary
-                ? LinearGradient(
-                    colors: [
-                      Colors.green.shade400,
-                      Colors.green.shade600,
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  )
-                : null,
-            color: widget.isPrimary
-                ? null
-                : Colors.grey.shade100,
-            boxShadow: widget.isPrimary
-                ? [
-                    BoxShadow(
-                      color: Colors.green.withValues(alpha: 0.3),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ]
-                : null,
-          ),
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-          child: Row(
-            children: [
-              Icon(
-                widget.icon,
-                color: widget.isPrimary ? Colors.white : Colors.green,
-                size: 22,
-              ),
-              const SizedBox(width: 12),
-              Text(
-                widget.label,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: widget.isPrimary ? Colors.white : Colors.green,
-                ),
-              ),
-              const Spacer(),
-              Icon(
-                Icons.arrow_forward_ios,
-                size: 14,
-                color: widget.isPrimary
-                    ? Colors.white.withValues(alpha: 0.7)
-                    : Colors.grey.shade600,
-              ),
-            ],
-          ),
-        ),
+    final accent = pendingCount > 0 ? AppColors.warning : AppColors.success;
+    final title = pendingCount > 0
+        ? '$pendingCount offline report${pendingCount == 1 ? '' : 's'} waiting'
+        : 'Offline queue is empty';
+    final subtitle = pendingCount > 0
+        ? 'Reports saved without internet will sync from this device when you reconnect.'
+        : 'You can keep reporting even without internet. New offline submissions will appear here.';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceRaised,
+        borderRadius: AppRadii.large,
+        border: Border.all(color: accent.withValues(alpha: 0.25)),
       ),
-    );
-  }
-}
-
-// Floating Action Menu Item Widget
-class _FABAction extends StatefulWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _FABAction({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  State<_FABAction> createState() => _FABActionState();
-}
-
-class _FABActionState extends State<_FABAction>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 200),
-      vsync: this,
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => _controller.forward(),
-      onTapUp: (_) {
-        _controller.reverse();
-        widget.onTap();
-      },
-      onTapCancel: () => _controller.reverse(),
-      child: ScaleTransition(
-        scale: Tween<double>(begin: 1.0, end: 0.9)
-            .animate(CurvedAnimation(
-              parent: _controller,
-              curve: Curves.easeInOut,
-            )),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: widget.color.withValues(alpha: 0.2),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.12),
+              borderRadius: AppRadii.medium,
+            ),
+            child: Icon(
+              pendingCount > 0
+                  ? Icons.cloud_upload_outlined
+                  : Icons.cloud_done_outlined,
+              color: accent,
+            ),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: widget.color.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                 ),
-                child: Icon(
-                  widget.icon,
-                  size: 20,
-                  color: widget.color,
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                widget.label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade800,
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+          const SizedBox(width: 12),
+          TextButton.icon(
+            onPressed: onSync,
+            icon: syncing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.sync_rounded),
+            label: Text(syncing ? 'Syncing' : 'Sync'),
+          ),
+        ],
       ),
     );
   }

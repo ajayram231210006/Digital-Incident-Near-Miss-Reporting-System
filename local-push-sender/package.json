@@ -1,16 +1,12 @@
 {
-  "name": "incitrack-local-push-sender",
-  "private": true,
+  "name": "local-push-sender",
   "version": "1.0.0",
-  "description": "Free local FCM sender for InciTrack using Firebase Admin SDK",
+  "private": true,
   "main": "index.js",
-  "engines": {
-    "node": ">=18"
-  },
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "firebase-admin": "^12.7.0"
+    "firebase-admin": "^13.4.0"
   }
 }

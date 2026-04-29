@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'app_theme.dart';
 import 'reporter.dart';
 
 class HomePage extends StatelessWidget {
@@ -31,27 +32,44 @@ class HomePage extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.person, size: 72),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.08),
+                  borderRadius: AppRadii.pill,
+                ),
+                child: const Icon(
+                  Icons.person,
+                  size: 72,
+                  color: AppColors.primary,
+                ),
+              ),
               const SizedBox(height: 12),
               Text('Welcome', style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 8),
               Text(
                 user?.email ?? 'No email available',
-                style: const TextStyle(fontSize: 16),
+                style: const TextStyle(
+                  fontSize: 16,
+                  color: AppColors.textSecondary,
+                ),
               ),
               const SizedBox(height: 24),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(12.0),
+                  padding: const EdgeInsets.all(16.0),
                   child: Column(
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.fingerprint),
+                          const Icon(Icons.fingerprint, color: AppColors.info),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               'UID: ${FirebaseAuth.instance.currentUser?.uid ?? "-"}',
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                              ),
                             ),
                           ),
                         ],

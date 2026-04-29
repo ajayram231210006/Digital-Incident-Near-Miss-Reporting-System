@@ -1,4 +1,4 @@
-# Miscellaneous
+# General
 *.class
 *.log
 *.pyc
@@ -11,50 +11,65 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
-Thumbs.db
 
-# IntelliJ related
+# IDEs and editors
+.idea/
+.vscode/
 *.iml
 *.ipr
 *.iws
-.idea/
 
-# VS Code (optional - uncomment if needed)
-#.vscode/
-
-# Flutter/Dart/Pub related
+# Flutter and Dart
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.flutter-plugins
 .flutter-plugins-dependencies
-.pub-cache/
 .pub/
+.pub-cache/
 /build/
 /coverage/
+/android/app/debug/
+/android/app/profile/
+/android/app/release/
+ios/Flutter/flutter_export_environment.sh
+macos/Flutter/ephemeral/
+linux/flutter/ephemeral/
+windows/flutter/ephemeral/
 
-# Android build outputs
-/android/app/debug
-/android/app/profile
-/android/app/release
+# Node
+node_modules/
+functions/node_modules/
+local-push-sender/node_modules/
 
-# Node dependencies (if any backend used)
-**/node_modules/
+# Firebase and local tooling
+.firebase/
+.firebaserc.local
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+release-artifacts/
 
-# Firebase / secrets / credentials (IMPORTANT)
-database.rules.json
-*.json
-*service-account*.json
-*.secret.json
-*.credentials.json
-local-push-sender/
+# Credentials and environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+service-account.json
 local-push-sender/service-account.json
+functions/.runtimeconfig.json
+google-services-dev.json
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+macos/Runner/GoogleService-Info.plist
 
-# Images (ignore only if not needed in repo)
-*.png
-*.jpg
-
-# Symbolication related
+# Generated app bundles and symbol maps
+*.apk
+*.aab
 app.*.symbols
-
-# Obfuscation related
 app.*.map.json

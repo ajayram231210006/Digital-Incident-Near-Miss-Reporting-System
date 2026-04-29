@@ -7,17 +7,15 @@ const databaseURL =
   process.env.FIREBASE_DATABASE_URL ||
   "https://users-3f3bd-default-rtdb.firebaseio.com";
 const defaultServiceAccountPath = path.join(__dirname, "service-account.json");
-const configuredServiceAccountPath =
-  process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-  process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
 const serviceAccountPath =
-  configuredServiceAccountPath ||
-  (fs.existsSync(defaultServiceAccountPath) ? defaultServiceAccountPath : null);
+  process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+  process.env.FIREBASE_SERVICE_ACCOUNT_PATH ||
+  defaultServiceAccountPath;
 const pollIntervalMs = Number(process.env.POLL_INTERVAL_MS || 5000);
 
 if (!serviceAccountPath) {
   console.error(
-    "Missing service account credentials. Set GOOGLE_APPLICATION_CREDENTIALS or FIREBASE_SERVICE_ACCOUNT_PATH, or place service-account.json next to index.js.",
+    "Missing GOOGLE_APPLICATION_CREDENTIALS or FIREBASE_SERVICE_ACCOUNT_PATH.",
   );
   process.exit(1);
 }
@@ -29,10 +27,9 @@ if (!fs.existsSync(resolvedServiceAccountPath)) {
 }
 
 const serviceAccount = require(resolvedServiceAccountPath);
-const credential = admin.credential.cert(serviceAccount);
 
 admin.initializeApp({
-  credential,
+  credential: admin.credential.cert(serviceAccount),
   databaseURL,
   projectId,
 });
@@ -235,15 +232,6 @@ async function start() {
   console.log(`Project: ${projectId}`);
   console.log(`Database: ${databaseURL}`);
   console.log(`Polling every ${pollIntervalMs} ms`);
-
-  try {
-    await credential.getAccessToken();
-  } catch (error) {
-    console.error(
-      "Firebase Admin authentication failed. Your local service-account.json is likely revoked/invalid, or your system clock is out of sync.",
-    );
-    throw error;
-  }
 
   await markStartupNotificationsAsProcessed();
   await scanForNewNotifications();

@@ -1,0 +1,148 @@
+// Firebase Realtime Database Rules for the current app structure
+// Review carefully before deploying in Firebase Console.
+// These rules are intentionally stricter for `incidents` than the current app
+// and are designed to match the separation introduced in `incident_service.dart`.
+
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || (root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active'))",
+        ".write": "auth != null && (((root.child('users').child(auth.uid).child('role').val() === 'admin') && root.child('users').child(auth.uid).child('status').val() === 'active') || (auth.uid === $uid && ((!data.exists() && newData.hasChildren(['email', 'firstName', 'lastName', 'role', 'status', 'createdAt'])) || (data.exists() && newData.child('role').val() === data.child('role').val() && newData.child('status').val() === data.child('status').val() && newData.child('createdAt').val() === data.child('createdAt').val()))))",
+
+        "role": {
+          ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active'"
+        },
+        "status": {
+          ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin' && root.child('users').child(auth.uid).child('status').val() === 'active'"
+        },
+        "fcmToken": {
+          ".write": "auth != null && auth.uid === $uid"
+        }
+      }
+    },
+
+    "roleDirectory": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active'",
+      "reporters": {
+        "$uid": {
+          ".write": "auth != null && (((root.child('users').child(auth.uid).child('role').val() === 'admin') && root.child('users').child(auth.uid).child('status').val() === 'active') || (auth.uid === $uid && root.child('users').child(auth.uid).child('role').val() === 'reporter' && root.child('users').child(auth.uid).child('status').val() === 'active'))"
+        }
+      },
+      "supervisors": {
+        "$uid": {
+          ".write": "auth != null && (((root.child('users').child(auth.uid).child('role').val() === 'admin') && root.child('users').child(auth.uid).child('status').val() === 'active') || (auth.uid === $uid && root.child('users').child(auth.uid).child('role').val() === 'supervisor' && root.child('users').child(auth.uid).child('status').val() === 'active'))"
+        }
+      }
+    },
+
+    "incidents": {
+      "$incidentId": {
+        ".read": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active'",
+
+        // Reporter create:
+        // - only on new incident records
+        // - reporterUid must match the signed-in user
+        // - reporter cannot create a pre-reviewed incident
+        ".write": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && ((!data.exists() && newData.child('reporterUid').val() === auth.uid && root.child('users').child(auth.uid).child('role').val() === 'reporter' && (!newData.child('status').exists() || newData.child('status').val() === 'open') && (!newData.child('severity').exists() || newData.child('severity').val() === '')) || (data.exists() && (root.child('users').child(auth.uid).child('role').val() === 'supervisor' || root.child('users').child(auth.uid).child('role').val() === 'admin')))",
+
+        "reporterUid": {
+          ".validate": "newData.isString() && (!data.exists() ? newData.val() === auth.uid : newData.val() === data.val())"
+        },
+        "reporterEmail": {
+          ".validate": "!newData.exists() || newData.isString()"
+        },
+        "type": {
+          ".validate": "newData.isString() && newData.val().length > 0"
+        },
+        "description": {
+          ".validate": "newData.isString() && newData.val().length > 0"
+        },
+        "date": {
+          ".validate": "newData.isString()"
+        },
+        "location": {
+          ".validate": "newData.isString() && newData.val().length > 0"
+        },
+        "imageUrls": {
+          ".validate": "!newData.exists() || newData.hasChildren() || newData.val() === null"
+        },
+        "videoUrl": {
+          ".validate": "!newData.exists() || newData.isString() || newData.val() === null"
+        },
+        "latitude": {
+          ".validate": "!newData.exists() || newData.isNumber() || newData.val() === null"
+        },
+        "longitude": {
+          ".validate": "!newData.exists() || newData.isNumber() || newData.val() === null"
+        },
+        "autoLocationName": {
+          ".validate": "!newData.exists() || newData.isString() || newData.val() === null"
+        },
+        "createdAt": {
+          ".validate": "newData.isString() && (!data.exists() || newData.val() === data.val())"
+        },
+        "updatedAt": {
+          ".validate": "newData.isString()"
+        },
+
+        // Supervisor/admin-managed review fields
+        "status": {
+          ".validate": "newData.isString() && (newData.val() === 'open' || newData.val() === 'active' || newData.val() === 'closed')"
+        },
+        "severity": {
+          ".validate": "!newData.exists() || (newData.isString() && (newData.val() === '' || newData.val() === 'low' || newData.val() === 'medium' || newData.val() === 'high' || newData.val() === 'critical'))"
+        },
+        "notes": {
+          ".validate": "!newData.exists() || newData.isString()"
+        },
+        "lastModified": {
+          ".validate": "!newData.exists() || newData.isString()"
+        },
+        "statusChangedAt": {
+          ".validate": "!newData.exists() || newData.isString()"
+        },
+        "closedAt": {
+          ".validate": "!newData.exists() || newData.isString()"
+        },
+        "assignedTo": {
+          ".validate": "!newData.exists() || newData.isString()"
+        },
+        "assignedBy": {
+          ".validate": "!newData.exists() || newData.isString()"
+        },
+
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+
+    "userNotifications": {
+      "$uid": {
+        ".read": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        "$notificationId": {
+          ".write": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'supervisor')"
+        }
+      }
+    },
+
+    "notificationTokens": {
+      "$uid": {
+        ".read": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && root.child('users').child(auth.uid).child('status').val() === 'active' && auth.uid === $uid"
+      }
+    }
+  }
+}
+
+Notes:
+
+1. `incidents/$incidentId/.write` now expresses the separation we added in code:
+   reporters create; supervisors/admins review and update.
+
+2. This ruleset is stricter than your previous example and may require small app
+   adjustments later if you add new incident fields. That is intentional.
+
+3. If you later move notification fan-out fully to Cloud Functions, you should
+   tighten `userNotifications` writes further and rely less on client writes.

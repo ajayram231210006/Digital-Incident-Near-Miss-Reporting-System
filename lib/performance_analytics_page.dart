@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'app_theme.dart';
 
 class PerformanceAnalyticsPage extends StatefulWidget {
   final User user;
@@ -8,7 +9,8 @@ class PerformanceAnalyticsPage extends StatefulWidget {
   const PerformanceAnalyticsPage({super.key, required this.user});
 
   @override
-  State<PerformanceAnalyticsPage> createState() => _PerformanceAnalyticsPageState();
+  State<PerformanceAnalyticsPage> createState() =>
+      _PerformanceAnalyticsPageState();
 }
 
 class _PerformanceAnalyticsPageState extends State<PerformanceAnalyticsPage> {
@@ -44,7 +46,9 @@ class _PerformanceAnalyticsPageState extends State<PerformanceAnalyticsPage> {
             final reporterUid = value['reporterUid']?.toString() ?? '';
             if (reporterUid == widget.user.uid) {
               total++;
-              final status = (value['status'] ?? 'open').toString().toLowerCase();
+              final status = (value['status'] ?? 'open')
+                  .toString()
+                  .toLowerCase();
 
               if (status == 'closed') {
                 resolved++;
@@ -56,10 +60,12 @@ class _PerformanceAnalyticsPageState extends State<PerformanceAnalyticsPage> {
 
               try {
                 // Use createdAt if available, fallback to date
-                final dateStr = (value['createdAt'] ?? value['date'])?.toString() ?? '';
+                final dateStr =
+                    (value['createdAt'] ?? value['date'])?.toString() ?? '';
                 if (dateStr.isNotEmpty) {
                   final date = DateTime.parse(dateStr);
-                  if (firstReportDate == null || date.isBefore(firstReportDate!)) {
+                  if (firstReportDate == null ||
+                      date.isBefore(firstReportDate!)) {
                     firstReportDate = date;
                   }
                   if (lastReportDate == null || date.isAfter(lastReportDate!)) {
@@ -80,8 +86,7 @@ class _PerformanceAnalyticsPageState extends State<PerformanceAnalyticsPage> {
       }
 
       final resolutionRate = total > 0 ? (resolved / total * 100).toInt() : 0;
-      final reportsPerDay =
-          totalDaysActive > 0 ? total / totalDaysActive : 0.0;
+      final reportsPerDay = totalDaysActive > 0 ? total / totalDaysActive : 0.0;
 
       return {
         'total': total,
@@ -101,12 +106,7 @@ class _PerformanceAnalyticsPageState extends State<PerformanceAnalyticsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Performance Analytics'),
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-      ),
+      appBar: AppBar(title: const Text('Performance Analytics'), elevation: 0),
       body: StreamBuilder<Map<String, dynamic>>(
         stream: _getAnalyticsStream(),
         builder: (context, snapshot) {
@@ -141,8 +141,8 @@ class _PerformanceAnalyticsPageState extends State<PerformanceAnalyticsPage> {
                 Text(
                   'Key Metrics',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 GridView.count(
@@ -156,28 +156,28 @@ class _PerformanceAnalyticsPageState extends State<PerformanceAnalyticsPage> {
                       label: 'Total Reports',
                       value: total.toString(),
                       icon: Icons.assignment,
-                      color: Colors.blue,
+                      color: AppColors.primary,
                       subtitle: 'All submissions',
                     ),
                     _MetricCard(
                       label: 'Resolved',
                       value: resolved.toString(),
                       icon: Icons.check_circle,
-                      color: Colors.green,
+                      color: AppColors.statusClosed,
                       subtitle: 'Closed reports',
                     ),
                     _MetricCard(
                       label: 'Pending',
                       value: pending.toString(),
                       icon: Icons.schedule,
-                      color: Colors.orange,
+                      color: AppColors.statusOpen,
                       subtitle: 'Awaiting review',
                     ),
                     _MetricCard(
                       label: 'Active',
                       value: active.toString(),
-                      icon: Icons.hourglass_bottom,
-                      color: Colors.amber,
+                      icon: Icons.autorenew_rounded,
+                      color: AppColors.statusActive,
                       subtitle: 'In progress',
                     ),
                   ],
@@ -188,46 +188,41 @@ class _PerformanceAnalyticsPageState extends State<PerformanceAnalyticsPage> {
                 Text(
                   'Performance Insights',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 _InsightCard(
                   title: 'Resolution Rate',
                   value: '$resolutionRate%',
-                  description:
-                      'Percentage of reports that have been resolved',
+                  description: 'Percentage of reports that have been resolved',
                   icon: Icons.trending_up,
-                  color: Colors.green,
+                  color: AppColors.statusClosed,
                 ),
                 const SizedBox(height: 10),
                 _InsightCard(
                   title: 'Average Resolution Time',
                   value: avgResolutionTime,
-                  description:
-                      'Average time to resolve a report',
+                  description: 'Average time to resolve a report',
                   icon: Icons.schedule,
-                  color: Colors.blue,
+                  color: AppColors.info,
                 ),
                 const SizedBox(height: 10),
                 _InsightCard(
                   title: 'Reports Per Day',
                   value: reportsPerDay,
-                  description:
-                      'Average submissions per day',
+                  description: 'Average submissions per day',
                   icon: Icons.show_chart,
-                  color: Colors.purple,
+                  color: AppColors.secondary,
                 ),
                 const SizedBox(height: 10),
                 _InsightCard(
                   title: 'Days Active',
                   value: daysActive > 0 ? '$daysActive days' : 'No data',
-                  description:
-                      'Time since first report submission',
+                  description: 'Time since first report submission',
                   icon: Icons.calendar_today,
-                  color: Colors.indigo,
+                  color: AppColors.primaryDark,
                 ),
-
               ],
             ),
           );
@@ -259,28 +254,18 @@ class _PerformanceScoreCard extends StatelessWidget {
   }
 
   Color _getScoreColor() {
-    if (resolutionRate >= 80) return Colors.green;
-    if (resolutionRate >= 60) return Colors.orange;
-    return Colors.red;
+    if (resolutionRate >= 80) return AppColors.statusClosed;
+    if (resolutionRate >= 60) return AppColors.statusOpen;
+    return AppColors.error;
   }
 
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Colors.purple.shade400, Colors.purple.shade600],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.purple.withValues(alpha: 0.2),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        borderRadius: AppRadii.large,
+        gradient: AppColors.analyticsGradient,
+        boxShadow: AppShadows.soft(AppColors.primary),
       ),
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -289,9 +274,9 @@ class _PerformanceScoreCard extends StatelessWidget {
           Text(
             'Performance Score',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w500,
-                ),
+              color: Colors.white,
+              fontWeight: FontWeight.w500,
+            ),
           ),
           const SizedBox(height: 16),
           Row(
@@ -319,8 +304,8 @@ class _PerformanceScoreCard extends StatelessWidget {
                   Text(
                     'Overall Rating',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.8),
-                        ),
+                      color: Colors.white.withValues(alpha: 0.8),
+                    ),
                   ),
                 ],
               ),
@@ -338,10 +323,7 @@ class _PerformanceScoreCard extends StatelessWidget {
                       value: daysActive > 0 ? '$daysActive' : '-',
                     ),
                     const SizedBox(height: 8),
-                    _StatRow(
-                      label: 'Daily Avg',
-                      value: reportsPerDay,
-                    ),
+                    _StatRow(label: 'Daily Avg', value: reportsPerDay),
                   ],
                 ),
               ),
@@ -358,10 +340,7 @@ class _StatRow extends StatelessWidget {
   final String label;
   final String value;
 
-  const _StatRow({
-    required this.label,
-    required this.value,
-  });
+  const _StatRow({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
@@ -414,14 +393,8 @@ class _MetricCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        color: AppColors.surface,
+        boxShadow: AppShadows.soft(color),
       ),
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -452,17 +425,14 @@ class _MetricCard extends StatelessWidget {
             style: const TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w500,
-              color: Colors.grey,
+              color: AppColors.textSecondary,
             ),
           ),
           const SizedBox(height: 6),
           Text(
             subtitle,
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 9,
-              color: Colors.grey.shade500,
-            ),
+            style: TextStyle(fontSize: 9, color: AppColors.textSecondary),
           ),
         ],
       ),
@@ -515,7 +485,7 @@ class _InsightCard extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
-                    color: Colors.grey,
+                    color: AppColors.textSecondary,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -532,7 +502,7 @@ class _InsightCard extends StatelessWidget {
                   description,
                   style: TextStyle(
                     fontSize: 10,
-                    color: Colors.grey.shade600,
+                    color: AppColors.textSecondary,
                   ),
                 ),
               ],
